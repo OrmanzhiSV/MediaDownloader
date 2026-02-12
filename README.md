@@ -51,7 +51,7 @@ Media Downloader supports downloading from a wide range of platforms including:
 
 ### Windows
 
-1. Download the latest installer from the [releases page](https://github.com/wish628/MediaDownloader/releases)
+1. Download the latest installer from the [releases page](https://github.com/hawitariku/MediaDownloader/releases)
 2. Run the installer and follow the setup wizard
 3. Launch Media Downloader from your desktop or start menu
 
@@ -176,7 +176,7 @@ Common issues and solutions:
 
 1. Clone the repository:
    ```
-   git clone https://github.com/wish628/MediaDownloader.git
+   git clone https://github.com/hawitariku/MediaDownloader.git
    cd MediaDownloader
    ```
 
