@@ -7,7 +7,8 @@ source.include_exts = py,png,jpg,kv,atlas,json,ico
 version = 1.0.0
 
 # Зависимости, необходимые для работы Kivy и загрузки медиа
-requirements = python3,kivy==2.3.0,requests,yt-dlp,urllib3,certifi,idna,jnius
+requirements = python3,kivy==2.3.0,requests,yt-dlp,urllib3,certifi,idna,jnius,android
+
 
 orientation = portrait
 fullscreen = 0
@@ -27,6 +28,7 @@ android.minapi = 21
 
 # Разрешения на чтение/запись файлов и доступ в интернет
 android.permissions = INTERNET, WRITE_EXTERNAL_STORAGE, READ_EXTERNAL_STORAGE
+source.exclude_patterns = app.py,create_installer.bat,test_mobile.py,verify_mobile.py
 
-# Имя главного файла для мобильной версии (у автора это main_mobile.py)
-android.entrypoint = main_mobile.py
+# Имя главного файла для мобильной версии (у автора это main.py)
+android.entrypoint = main.py
