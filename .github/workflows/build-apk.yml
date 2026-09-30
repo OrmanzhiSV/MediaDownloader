@@ -30,10 +30,19 @@ jobs:
         pip install --upgrade pip
         pip install Cython==0.29.33 buildozer virtualenv
 
+
+    # Запуск компиляции
     - name: Build with Buildozer
       run: |
-        # Используем встроенную команду buildozer для автоматической сборки в режиме отладки (debug)
-        buildozer android debug
+        # Создаем пустые папки для лицензий, чтобы Android SDK принял их автоматически
+        mkdir -p ~/.buildozer/android/platform/android-sdk/licenses
+        
+        # Записываем хэши лицензий Google, подтверждая наше согласие
+        echo -e "\n893a5cd8e1b672669ab80f8db3ad48a32396d93a\n45f2d2d0b7b672669ab80f8db3ad48a32396d93a" > ~/.buildozer/android/platform/android-sdk/licenses/android-sdk-license
+        echo -e "\n84831b9409646a918e30573bab4c9c91346d8abd\n504667f4c0de7af1a06de9f4b1727b84351f2910" > ~/.buildozer/android/platform/android-sdk/licenses/android-sdk-preview-license
+        
+        # Принудительно соглашаемся со всеми лицензиями через команду yes
+        yes | buildozer android debug
       env:
         BUILDOZER_WARN_ON_ROOT: 0
 
