@@ -39,7 +39,7 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y libsqlite3-dev lld cmake libffi-dev libssl-dev autoconf automake libtool pkg-config zlib1g-dev ccache textinfo
+        sudo apt-get install -y libsqlite3-dev lld cmake libffi-dev libssl-dev autoconf automake libtool pkg-config zlib1g-dev ccache texinfo
         pip install --upgrade pip
         pip install "Cython<3.0.0" buildozer virtualenv setuptools wheel
 
