@@ -7,7 +7,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
     - name: Checkout code
@@ -21,28 +21,34 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
-        python-version: '3.10'
+        python-version: '3.11'
+
+    # Шаг 1: Правильно настраиваем Java 17, которая необходима для Android SDK
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: '17'
+
+    # Шаг 2: Принудительно предустанавливаем официальный Android SDK и автоматически принимаем все лицензии
+    - name: Setup Android SDK
+      uses: android-actions/setup-android@v3
 
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y libsqlite3-dev lld cmake libffi-dev libssl-dev autoconf automake libtool pkg-config zlib1g-dev
+        sudo apt-get install -y libsqlite3-dev lld cmake libffi-dev libssl-dev autoconf automake libtool pkg-config zlib1g-dev ccache textinfo
         pip install --upgrade pip
-        pip install Cython==0.29.33 buildozer virtualenv
+        pip install "Cython<3.0.0" buildozer virtualenv setuptools wheel
 
-
-    # Запуск компиляции
+    # Шаг 3: Сообщаем Buildozer, где лежат уже установленные и лицензированные инструменты SDK
     - name: Build with Buildozer
       run: |
-        # Создаем пустые папки для лицензий, чтобы Android SDK принял их автоматически
-        mkdir -p ~/.buildozer/android/platform/android-sdk/licenses
+        # Экшен setup-android автоматически сохраняет пути в переменные окружения, передаем их в Buildozer
+        export ANDROID_SDK_ROOT=$ANDROID_HOME
         
-        # Записываем хэши лицензий Google, подтверждая наше согласие
-        echo -e "\n893a5cd8e1b672669ab80f8db3ad48a32396d93a\n45f2d2d0b7b672669ab80f8db3ad48a32396d93a" > ~/.buildozer/android/platform/android-sdk/licenses/android-sdk-license
-        echo -e "\n84831b9409646a918e30573bab4c9c91346d8abd\n504667f4c0de7af1a06de9f4b1727b84351f2910" > ~/.buildozer/android/platform/android-sdk/licenses/android-sdk-preview-license
-        
-        # Принудительно соглашаемся со всеми лицензиями через команду yes
-        yes | buildozer android debug
+        # Запускаем сборку
+        buildozer android debug
       env:
         BUILDOZER_WARN_ON_ROOT: 0
 
