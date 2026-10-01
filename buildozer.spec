@@ -9,7 +9,6 @@ version = 1.0.0
 # Зависимости, необходимые для работы Kivy и загрузки медиа
 requirements = python3,kivy==2.3.0,requests,yt-dlp,urllib3,certifi,idna,jnius,android
 
-
 orientation = portrait
 fullscreen = 0
 icon.filename = icon.ico
@@ -36,3 +35,4 @@ source.exclude_patterns = app.py,create_installer.bat,test_mobile.py,verify_mobi
 
 # Имя главного файла для мобильной версии (у автора это main.py)
 android.entrypoint = main.py
+
