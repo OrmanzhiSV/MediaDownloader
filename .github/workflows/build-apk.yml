@@ -40,13 +40,8 @@ jobs:
         sudo apt-get install -y libsqlite3-dev lld cmake libffi-dev libssl-dev autoconf automake libtool pkg-config zlib1g-dev ccache texinfo git
         python -m pip install --upgrade pip
         python -m pip install "Cython<3.0.0" virtualenv setuptools wheel
-
-    # Новый шаг: Скачиваем исправленный Buildozer напрямую через git во временную папку и устанавливаем его локально
-    - name: Install Latest Buildozer from Source
-      run: |
-        git clone --depth=1 https://github.com /home/runner/buildozer_src
-        cd /home/runner/buildozer_src
-        python -m pip install .
+        # Установка стабильного мастера buildozer без использования громоздких команд git clone
+        python -m pip install git+https://github.com
 
     - name: Build with Buildozer
       run: |
@@ -65,7 +60,7 @@ jobs:
         cp -r /usr/local/lib/android/sdk/licenses/* /home/runner/.buildozer/android/platform/android-sdk/licenses/ 2>/dev/null || true
         cp -r /usr/local/lib/android/sdk/licenses/* ~/.buildozer/android/platform/android-sdk/licenses/ 2>/dev/null || true
         
-        # 5. Запускаем сборку. Новый Buildozer автоматически распознает современные cmdline-tools от Google!
+        # 5. Запуск компиляции
         buildozer android debug
       env:
         BUILDOZER_WARN_ON_ROOT: 0
