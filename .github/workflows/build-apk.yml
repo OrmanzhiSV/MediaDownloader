@@ -39,6 +39,7 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y libsqlite3-dev lld cmake libffi-dev libssl-dev autoconf automake libtool pkg-config zlib1g-dev ccache texinfo git
         python -m pip install --upgrade pip
+        # Устанавливаем Cython и пакет build, который p4a вызывает внутренне
         python -m pip install "Cython<3.0.0" wheel setuptools virtualenv python-for-android jinja2 sh appdirs colorama build
 
     - name: Build APK with python-for-android
@@ -48,14 +49,12 @@ jobs:
         export ANDROID_SDK_ROOT=/usr/local/lib/android/sdk
         export ANDROID_NDK_ROOT=/usr/local/lib/android/sdk/ndk-bundle
         
+        # ЖЕСТКИЙ ХАК: Отключаем изоляцию встроенных сред сборки p4a.
+        # Это принудительно заставит внутренний 'python -m build' увидеть наш глобальный Cython
+        export P4A_NO_BUILD_ISOLATION=1
         export PIP_NO_BUILD_ISOLATION=0
-        export PIP_USE_PEP517=0
+        export PIP_USE_PEP517=no
 
-        # ХАК: Передаем точную, существующую на GitHub архивную версию Python 3.11
-        # через официальную переменную python-for-android. Это предотвратит ошибку 404.
-        export P4A_python3_version="3.11.9"
-
-        # В параметре --requirements возвращаем чистые имена без знаков "=="
         p4a apk \
           --private . \
           --package=org.ormanzhisv.mediadownloader \
