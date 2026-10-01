@@ -49,8 +49,16 @@ jobs:
         export ANDROID_NDK_ROOT=/usr/local/lib/android/sdk/ndk-bundle
         export ACLOCAL_PATH=/usr/share/aclocal
         
-        # Запускаем прямую сборку. Замена python3==3.11 на связку python3,hostpython3 
-        # заставит p4a синхронизировать версии автоматически.
+        # ХАК: Находим, куда p4a установил рецепт libffi, и принудительно заменяем 
+        # устаревший макрос, который ломает autoconf на Ubuntu 24.04
+        P4A_PATH=$(python -c "import pythonforandroid; import os; print(os.path.dirname(pythonforandroid.__file__))")
+        LIBFFI_CONF="$P4A_PATH/recipes/libffi/configure.ac"
+        if [ -f "$LIBFFI_CONF" ]; then
+          sed -i 's/LT_SYS_SYMBOL_USCORE/m4_define([LT_SYS_SYMBOL_USCORE], [])/g' "$LIBFFI_CONF"
+          echo "Рецепт libffi успешно пропатчен!"
+        fi
+        
+        # Сборка с автоматической синхронизацией версий
         p4a apk \
           --private . \
           --package=org.ormanzhisv.mediadownloader \
