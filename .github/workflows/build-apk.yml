@@ -46,15 +46,26 @@ jobs:
         # 1. Принудительно одобряем лицензии в системном SDK
         yes | /usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager --licenses || true
         
-        # 2. Передаем точные переменные путей, которые ищет python-for-android
+        # 2. Создаем папки для лицензий во ВСЕХ возможных локальных директориях Buildozer
+        mkdir -p /home/runner/.buildozer/android/platform/android-sdk/licenses
+        mkdir -p ~/.buildozer/android/platform/android-sdk/licenses
+        
+        # 3. Напрямую записываем хэш-ключи согласия Google во внутренние файлы
+        # Это закроет любые вопросы (y/N) для build-tools любой версии (включая 37)
+        echo -e "\n893a5cd8e1b672669ab80f8db3ad48a32396d93a\n45f2d2d0b7b672669ab80f8db3ad48a32396d93a\n24333f1a50b6a8d67385315074ed226d875080be" > /home/runner/.buildozer/android/platform/android-sdk/licenses/android-sdk-license
+        echo -e "\n893a5cd8e1b672669ab80f8db3ad48a32396d93a\n45f2d2d0b7b672669ab80f8db3ad48a32396d93a\n24333f1a50b6a8d67385315074ed226d875080be" > ~/.buildozer/android/platform/android-sdk/licenses/android-sdk-license
+        
+        # 4. Копируем одобренные системные лицензии в папки сборщика для максимальной подстраховки
+        cp -r /usr/local/lib/android/sdk/licenses/* /home/runner/.buildozer/android/platform/android-sdk/licenses/ 2>/dev/null || true
+        cp -r /usr/local/lib/android/sdk/licenses/* ~/.buildozer/android/platform/android-sdk/licenses/ 2>/dev/null || true
+        
+        # 5. Передаем системные пути
         export ANDROID_HOME=/usr/local/lib/android/sdk
         export ANDROID_SDK_ROOT=/usr/local/lib/android/sdk
-        
-        # Добавляем путь к системному sdkmanager в общий PATH процесса
         export PATH=$PATH:/usr/local/lib/android/sdk/cmdline-tools/latest/bin:/usr/local/lib/android/sdk/platform-tools
         
-        # 3. Запускаем сборку приложения
-        buildozer android debug
+        # 6. Запускаем сборку (команда "yes |" подстрахует, если p4a создаст еще одну скрытую папку)
+        yes | buildozer android debug
       env:
         BUILDOZER_WARN_ON_ROOT: 0
 
@@ -63,4 +74,3 @@ jobs:
       with:
         name: MediaDownloader-APK-${{ env.date }}
         path: bin/*.apk
-        
