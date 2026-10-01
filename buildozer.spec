@@ -20,8 +20,8 @@ warn_on_root = 0
 
 [android]
 # Указываем Buildozer брать уже готовый SDK и NDK от GitHub Actions
-android.sdk_path = /usr/local/lib/android/sdk
-android.ndk_path = /usr/local/lib/android/sdk/ndk-bundle
+android.sdk = /usr/local/lib/android/sdk
+android.ndk = /usr/local/lib/android/sdk/ndk-bundle
 
 # Архитектуры процессоров для сборки
 android.archs = armeabi-v7a, arm64-v8a
