@@ -37,21 +37,20 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y libsqlite3-dev lld cmake libffi-dev libssl-dev autoconf automake libtool pkg-config zlib1g-dev ccache texinfo git
+        sudo apt-get install -y libsqlite3-dev lld cmake libffi-dev libssl-dev autoconf automake libtool pkg-config zlib1g-dev ccache texinfo
         python -m pip install --upgrade pip
-        python -m pip install "Cython<3.0.0" virtualenv setuptools wheel
-        python -m pip install git+https://github.com
+        python -m pip install "Cython<3.0.0" buildozer virtualenv setuptools wheel
 
     - name: Build with Buildozer
       run: |
         # 1. Принимаем лицензии в системном Android SDK от GitHub Actions
         yes | /usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager --licenses || true
         
-        # 2. Создаем папки для лицензий во внутреннем каталоге Buildozer (куда он пытается скачивать SDK)
+        # 2. Создаем папки для лицензий во внутреннем каталоге Buildozer
         mkdir -p /home/runner/.buildozer/android/platform/android-sdk/licenses
         mkdir -p ~/.buildozer/android/platform/android-sdk/licenses
         
-        # 3. Записываем хэш-ключи официальных лицензий Google напрямую в файлы, обходя любые вопросы (y/N)
+        # 3. Записываем хэш-ключи официальных лицензий Google напрямую в файлы, обходя любые вопросы
         echo -e "\n893a5cd8e1b672669ab80f8db3ad48a32396d93a\n45f2d2d0b7b672669ab80f8db3ad48a32396d93a\n24333f1a50b6a8d67385315074ed226d875080be" > /home/runner/.buildozer/android/platform/android-sdk/licenses/android-sdk-license
         echo -e "\n893a5cd8e1b672669ab80f8db3ad48a32396d93a\n45f2d2d0b7b672669ab80f8db3ad48a32396d93a\n24333f1a50b6a8d67385315074ed226d875080be" > ~/.buildozer/android/platform/android-sdk/licenses/android-sdk-license
         
@@ -59,14 +58,14 @@ jobs:
         cp -r /usr/local/lib/android/sdk/licenses/* /home/runner/.buildozer/android/platform/android-sdk/licenses/ 2>/dev/null || true
         cp -r /usr/local/lib/android/sdk/licenses/* ~/.buildozer/android/platform/android-sdk/licenses/ 2>/dev/null || true
         
-        # 5. Запускаем сборку, автоматически отвечая "Да" на любые сопутствующие вопросы
+        # 5. Запускаем сборку
         yes | buildozer android debug
       env:
         BUILDOZER_WARN_ON_ROOT: 0
-
 
     - name: Upload APK Artifact
       uses: actions/upload-artifact@v4
       with:
         name: MediaDownloader-APK-${{ env.date }}
         path: bin/*.apk
+        
