@@ -43,10 +43,26 @@ jobs:
 
     - name: Build with Buildozer
       run: |
-        # Запускаем сборку напрямую, так как buildozer сам скачает совместимый NDK r25b/r26
-        buildozer android debug
+        # 1. Принимаем лицензии в системном Android SDK от GitHub Actions
+        yes | /usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager --licenses || true
+        
+        # 2. Создаем папки для лицензий во внутреннем каталоге Buildozer (куда он пытается скачивать SDK)
+        mkdir -p /home/runner/.buildozer/android/platform/android-sdk/licenses
+        mkdir -p ~/.buildozer/android/platform/android-sdk/licenses
+        
+        # 3. Записываем хэш-ключи официальных лицензий Google напрямую в файлы, обходя любые вопросы (y/N)
+        echo -e "\n893a5cd8e1b672669ab80f8db3ad48a32396d93a\n45f2d2d0b7b672669ab80f8db3ad48a32396d93a\n24333f1a50b6a8d67385315074ed226d875080be" > /home/runner/.buildozer/android/platform/android-sdk/licenses/android-sdk-license
+        echo -e "\n893a5cd8e1b672669ab80f8db3ad48a32396d93a\n45f2d2d0b7b672669ab80f8db3ad48a32396d93a\n24333f1a50b6a8d67385315074ed226d875080be" > ~/.buildozer/android/platform/android-sdk/licenses/android-sdk-license
+        
+        # 4. Копируем системные одобренные лицензии во внутренние папки Buildozer для подстраховки
+        cp -r /usr/local/lib/android/sdk/licenses/* /home/runner/.buildozer/android/platform/android-sdk/licenses/ 2>/dev/null || true
+        cp -r /usr/local/lib/android/sdk/licenses/* ~/.buildozer/android/platform/android-sdk/licenses/ 2>/dev/null || true
+        
+        # 5. Запускаем сборку, автоматически отвечая "Да" на любые сопутствующие вопросы
+        yes | buildozer android debug
       env:
         BUILDOZER_WARN_ON_ROOT: 0
+
 
     - name: Upload APK Artifact
       uses: actions/upload-artifact@v4
