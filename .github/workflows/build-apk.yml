@@ -37,7 +37,8 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y libsqlite3-dev lld cmake libffi-dev libssl-dev autoconf automake libtool pkg-config zlib1g-dev ccache texinfo git
+        # Добавлены libtool, libtool-bin и m4 для исправления ошибки компиляции libffi
+        sudo apt-get install -y libsqlite3-dev lld cmake libffi-dev libssl-dev autoconf automake libtool libtool-bin m4 pkg-config zlib1g-dev ccache texinfo git
         python -m pip install --upgrade pip
         python -m pip install "Cython<3.0.0" virtualenv setuptools wheel python-for-android jinja2 sh appdirs colorama
 
@@ -48,7 +49,6 @@ jobs:
         export ANDROID_SDK_ROOT=/usr/local/lib/android/sdk
         export ANDROID_NDK_ROOT=/usr/local/lib/android/sdk/ndk-bundle
         
-        # Запускаем прямую сборку с явным указанием доступного Android API 34
         p4a apk \
           --private . \
           --package=org.ormanzhisv.mediadownloader \
