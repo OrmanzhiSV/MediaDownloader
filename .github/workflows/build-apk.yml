@@ -43,23 +43,27 @@ jobs:
 
     - name: Build with Buildozer
       run: |
-        # 1. Принимаем лицензии в системном Android SDK
-        yes | /usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager --licenses || true
-        
-        # 2. Создаем папки для лицензий во внутреннем каталоге
+        # 1. Принудительно создаем структуру каталогов, которую ожидает увидеть старый Buildozer
+        mkdir -p /home/runner/.buildozer/android/platform/android-sdk/tools/bin
         mkdir -p /home/runner/.buildozer/android/platform/android-sdk/licenses
         mkdir -p ~/.buildozer/android/platform/android-sdk/licenses
         
-        # 3. Записываем хэш-ключи официальных лицензий Google напрямую в файлы
+        # 2. Делаем "символическую ссылку" (мост): перенаправляем запросы из старой папки tools/bin в новый рабочий системный sdkmanager
+        ln -s /usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager /home/runner/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager || true
+        
+        # 3. Автоматически принимаем все системные лицензии Google
+        yes | /usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager --licenses || true
+        
+        # 4. Записываем хэш-ключи лицензий напрямую в локальные папки Buildozer, чтобы застраховаться от любых вопросов
         echo -e "\n893a5cd8e1b672669ab80f8db3ad48a32396d93a\n45f2d2d0b7b672669ab80f8db3ad48a32396d93a\n24333f1a50b6a8d67385315074ed226d875080be" > /home/runner/.buildozer/android/platform/android-sdk/licenses/android-sdk-license
         echo -e "\n893a5cd8e1b672669ab80f8db3ad48a32396d93a\n45f2d2d0b7b672669ab80f8db3ad48a32396d93a\n24333f1a50b6a8d67385315074ed226d875080be" > ~/.buildozer/android/platform/android-sdk/licenses/android-sdk-license
         
-        # 4. Копируем системные одобренные лицензии
+        # 5. Копируем системные одобренные файлы лицензий для полной подстраховки
         cp -r /usr/local/lib/android/sdk/licenses/* /home/runner/.buildozer/android/platform/android-sdk/licenses/ 2>/dev/null || true
         cp -r /usr/local/lib/android/sdk/licenses/* ~/.buildozer/android/platform/android-sdk/licenses/ 2>/dev/null || true
         
-        # 5. Запускаем чистую сборку приложения
-        yes | buildozer android debug
+        # 6. Запускаем компиляцию БЕЗ команды "yes |", чтобы избежать переполнения буфера (Broken pipe)
+        buildozer android debug
       env:
         BUILDOZER_WARN_ON_ROOT: 0
 
