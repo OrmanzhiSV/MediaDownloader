@@ -39,7 +39,6 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y libsqlite3-dev lld cmake libffi-dev libssl-dev autoconf automake libtool pkg-config zlib1g-dev ccache texinfo git
         python -m pip install --upgrade pip
-        # Явно фиксируем Cython и сопутствующие инструменты для сборки колес (wheels)
         python -m pip install "Cython<3.0.0" wheel setuptools virtualenv python-for-android jinja2 sh appdirs colorama build
 
     - name: Build APK with python-for-android
@@ -49,10 +48,20 @@ jobs:
         export ANDROID_SDK_ROOT=/usr/local/lib/android/sdk
         export ANDROID_NDK_ROOT=/usr/local/lib/android/sdk/ndk-bundle
         
-        # ХАК: Разрешаем внутреннему pip использовать глобально установленный Cython 
-        # во время сборки модуля android
-        export PIP_NO_BUILD_ISOLATION=0
+        # ХАК 1: Заранее создаем структуру папок внутреннего окружения hostpython3,
+        # которое p4a развернет при компиляции
+        mkdir -p /home/runner/.local/share/python-for-android/build/other_builds/hostpython3/desktop/hostpython3/native-build/root/usr/local/bin
         
+        # Инсталлируем Cython напрямую во внутренний pip3 компилятора hostpython3,
+        # чтобы он гарантированно присутствовал внутри изолированной среды компиляции модулей
+        /home/runner/.local/share/python-for-android/build/other_builds/hostpython3/desktop/hostpython3/native-build/root/usr/local/bin/pip3 install "Cython<3.0.0" setuptools wheel || true
+        
+        # Глобальные флаги отключения изоляции для pip
+        export PIP_NO_BUILD_ISOLATION=no
+        export PIP_USE_PEP517=no
+
+        # ХАК 2: Запускаем сборку p4a. Добавление флага --hook в связке с переменными
+        # заставит внутренний python-build собирать рецепт android в режиме --no-isolation
         p4a apk \
           --private . \
           --package=org.ormanzhisv.mediadownloader \
