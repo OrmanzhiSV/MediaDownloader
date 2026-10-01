@@ -43,26 +43,17 @@ jobs:
 
     - name: Build with Buildozer
       run: |
-        # 1. Принудительно создаем структуру каталогов, которую ожидает увидеть старый Buildozer
-        mkdir -p /home/runner/.buildozer/android/platform/android-sdk/tools/bin
-        mkdir -p /home/runner/.buildozer/android/platform/android-sdk/licenses
-        mkdir -p ~/.buildozer/android/platform/android-sdk/licenses
-        
-        # 2. Делаем "символическую ссылку" (мост): перенаправляем запросы из старой папки tools/bin в новый рабочий системный sdkmanager
-        ln -s /usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager /home/runner/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager || true
-        
-        # 3. Автоматически принимаем все системные лицензии Google
+        # 1. Принудительно одобряем лицензии в системном SDK
         yes | /usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager --licenses || true
         
-        # 4. Записываем хэш-ключи лицензий напрямую в локальные папки Buildozer, чтобы застраховаться от любых вопросов
-        echo -e "\n893a5cd8e1b672669ab80f8db3ad48a32396d93a\n45f2d2d0b7b672669ab80f8db3ad48a32396d93a\n24333f1a50b6a8d67385315074ed226d875080be" > /home/runner/.buildozer/android/platform/android-sdk/licenses/android-sdk-license
-        echo -e "\n893a5cd8e1b672669ab80f8db3ad48a32396d93a\n45f2d2d0b7b672669ab80f8db3ad48a32396d93a\n24333f1a50b6a8d67385315074ed226d875080be" > ~/.buildozer/android/platform/android-sdk/licenses/android-sdk-license
+        # 2. Передаем точные переменные путей, которые ищет python-for-android
+        export ANDROID_HOME=/usr/local/lib/android/sdk
+        export ANDROID_SDK_ROOT=/usr/local/lib/android/sdk
         
-        # 5. Копируем системные одобренные файлы лицензий для полной подстраховки
-        cp -r /usr/local/lib/android/sdk/licenses/* /home/runner/.buildozer/android/platform/android-sdk/licenses/ 2>/dev/null || true
-        cp -r /usr/local/lib/android/sdk/licenses/* ~/.buildozer/android/platform/android-sdk/licenses/ 2>/dev/null || true
+        # Добавляем путь к системному sdkmanager в общий PATH процесса
+        export PATH=$PATH:/usr/local/lib/android/sdk/cmdline-tools/latest/bin:/usr/local/lib/android/sdk/platform-tools
         
-        # 6. Запускаем компиляцию БЕЗ команды "yes |", чтобы избежать переполнения буфера (Broken pipe)
+        # 3. Запускаем сборку приложения
         buildozer android debug
       env:
         BUILDOZER_WARN_ON_ROOT: 0
@@ -72,3 +63,4 @@ jobs:
       with:
         name: MediaDownloader-APK-${{ env.date }}
         path: bin/*.apk
+        
