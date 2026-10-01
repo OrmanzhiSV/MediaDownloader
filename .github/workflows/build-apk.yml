@@ -38,9 +38,9 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y libsqlite3-dev lld cmake libffi-dev libssl-dev autoconf automake libtool pkg-config zlib1g-dev ccache texinfo
-        pip install --upgrade pip
-        # Устанавливаем стабильную и предсказуемую версию buildozer
-        pip install "Cython<3.0.0" git+https://github.com virtualenv setuptools wheel
+        python -m pip install --upgrade pip
+        python -m pip install "Cython<3.0.0" virtualenv setuptools wheel
+        python -m pip install git+https://github.com
 
     - name: Build with Buildozer
       run: |
