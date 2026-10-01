@@ -49,16 +49,13 @@ jobs:
         export ANDROID_NDK_ROOT=/usr/local/lib/android/sdk/ndk-bundle
         export ACLOCAL_PATH=/usr/share/aclocal
         
-        # ХАК: Находим, куда p4a установил рецепт libffi, и принудительно заменяем 
-        # устаревший макрос, который ломает autoconf на Ubuntu 24.04
-        P4A_PATH=$(python -c "import pythonforandroid; import os; print(os.path.dirname(pythonforandroid.__file__))")
-        LIBFFI_CONF="$P4A_PATH/recipes/libffi/configure.ac"
-        if [ -f "$LIBFFI_CONF" ]; then
-          sed -i 's/LT_SYS_SYMBOL_USCORE/m4_define([LT_SYS_SYMBOL_USCORE], [])/g' "$LIBFFI_CONF"
-          echo "Рецепт libffi успешно пропатчен!"
-        fi
+        # ХЕВИ-ПАТЧ: Разрешаем неопределенный макрос LT_SYS_SYMBOL_USCORE на уровне всей системы m4.
+        # Теперь autoconf проигнорирует эту ошибку в любом рецепте (libffi, openssl и т.д.)
+        sudo mkdir -p /usr/share/aclocal
+        echo "m4_pattern_allow([^LT_SYS_SYMBOL_USCORE$])" | sudo tee -a /usr/share/aclocal/libffi_fix.m4
+        echo "m4_pattern_allow([^LT_SYS_SYMBOL_USCORE$])" | sudo tee -a /usr/share/aclocal/python_fix.m4
         
-        # Сборка с автоматической синхронизацией версий
+        # Запуск сборки с автоматической синхронизацией версий
         p4a apk \
           --private . \
           --package=org.ormanzhisv.mediadownloader \
