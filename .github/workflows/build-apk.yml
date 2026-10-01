@@ -48,27 +48,20 @@ jobs:
         export ANDROID_SDK_ROOT=/usr/local/lib/android/sdk
         export ANDROID_NDK_ROOT=/usr/local/lib/android/sdk/ndk-bundle
         
-        # ХАК 1: Заранее создаем структуру папок внутреннего окружения hostpython3,
-        # которое p4a развернет при компиляции
-        mkdir -p /home/runner/.local/share/python-for-android/build/other_builds/hostpython3/desktop/hostpython3/native-build/root/usr/local/bin
-        
-        # Инсталлируем Cython напрямую во внутренний pip3 компилятора hostpython3,
-        # чтобы он гарантированно присутствовал внутри изолированной среды компиляции модулей
-        /home/runner/.local/share/python-for-android/build/other_builds/hostpython3/desktop/hostpython3/native-build/root/usr/local/bin/pip3 install "Cython<3.0.0" setuptools wheel || true
-        
-        # Глобальные флаги отключения изоляции для pip
-        export PIP_NO_BUILD_ISOLATION=no
-        export PIP_USE_PEP517=no
+        # Жестко отключаем изоляцию для pip во вложенных процессах
+        export PIP_NO_BUILD_ISOLATION=0
+        export PIP_USE_PEP517=0
 
-        # ХАК 2: Запускаем сборку p4a. Добавление флага --hook в связке с переменными
-        # заставит внутренний python-build собирать рецепт android в режиме --no-isolation
+        # Фиксация версий: --requirements=hostpython3==3.11,python3==3.11
+        # Это заставит p4a скачать исходники cpython-3.11 вместо cpython-3.14.0,
+        # и все встроенные патчи применятся идеально.
         p4a apk \
           --private . \
           --package=org.ormanzhisv.mediadownloader \
           --name="Media Downloader" \
           --version=1.0.0 \
           --bootstrap=sdl2 \
-          --requirements=hostpython3,python3,kivy==2.3.0,requests,yt-dlp,urllib3,certifi,idna,jnius,android \
+          --requirements=hostpython3==3.11,python3==3.11,kivy==2.3.0,requests,yt-dlp,urllib3,certifi,idna,jnius,android \
           --arch=arm64-v8a \
           --arch=armeabi-v7a \
           --android-api 34 \
