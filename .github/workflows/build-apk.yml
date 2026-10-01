@@ -39,35 +39,33 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y libsqlite3-dev lld cmake libffi-dev libssl-dev autoconf automake libtool pkg-config zlib1g-dev ccache texinfo git
         python -m pip install --upgrade pip
-        python -m pip install "Cython<3.0.0" buildozer virtualenv setuptools wheel
+        # Устанавливаем сам движок python-for-android и необходимые для сборки утилиты
+        python -m pip install "Cython<3.0.0" virtualenv setuptools wheel python-for-android jinja2 sh appdirs colorama
 
-    - name: Build with Buildozer
+    - name: Build APK with python-for-android
       run: |
-        # 1. Принудительно одобряем лицензии в системном SDK
+        # 1. Принимаем лицензии в системном SDK
         yes | /usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager --licenses || true
         
-        # 2. Создаем папки для лицензий во ВСЕХ возможных локальных директориях Buildozer
-        mkdir -p /home/runner/.buildozer/android/platform/android-sdk/licenses
-        mkdir -p ~/.buildozer/android/platform/android-sdk/licenses
-        
-        # 3. Напрямую записываем хэш-ключи согласия Google во внутренние файлы
-        # Это закроет любые вопросы (y/N) для build-tools любой версии (включая 37)
-        echo -e "\n893a5cd8e1b672669ab80f8db3ad48a32396d93a\n45f2d2d0b7b672669ab80f8db3ad48a32396d93a\n24333f1a50b6a8d67385315074ed226d875080be" > /home/runner/.buildozer/android/platform/android-sdk/licenses/android-sdk-license
-        echo -e "\n893a5cd8e1b672669ab80f8db3ad48a32396d93a\n45f2d2d0b7b672669ab80f8db3ad48a32396d93a\n24333f1a50b6a8d67385315074ed226d875080be" > ~/.buildozer/android/platform/android-sdk/licenses/android-sdk-license
-        
-        # 4. Копируем одобренные системные лицензии в папки сборщика для максимальной подстраховки
-        cp -r /usr/local/lib/android/sdk/licenses/* /home/runner/.buildozer/android/platform/android-sdk/licenses/ 2>/dev/null || true
-        cp -r /usr/local/lib/android/sdk/licenses/* ~/.buildozer/android/platform/android-sdk/licenses/ 2>/dev/null || true
-        
-        # 5. Передаем системные пути
-        export ANDROID_HOME=/usr/local/lib/android/sdk
+        # 2. Регистрируем системные пути к Android SDK и NDK для компилятора
         export ANDROID_SDK_ROOT=/usr/local/lib/android/sdk
-        export PATH=$PATH:/usr/local/lib/android/sdk/cmdline-tools/latest/bin:/usr/local/lib/android/sdk/platform-tools
+        export ANDROID_NDK_ROOT=/usr/local/lib/android/sdk/ndk-bundle
         
-        # 6. Запускаем сборку (команда "yes |" подстрахует, если p4a создаст еще одну скрытую папку)
-        yes | buildozer android debug
-      env:
-        BUILDOZER_WARN_ON_ROOT: 0
+        # 3. Запускаем прямую сборку APK, минуя Buildozer
+        p4a apk \
+          --private . \
+          --package=org.ormanzhisv.mediadownloader \
+          --name="Media Downloader" \
+          --version=1.0.0 \
+          --bootstrap=sdl2 \
+          --requirements=python3,kivy==2.3.0,requests,yt-dlp,urllib3,certifi,idna,jnius,android \
+          --arch=arm64-v8a \
+          --arch=armeabi-v7a \
+          --release
+
+        # 4. Переносим готовый файл в стандартную папку для выгрузки
+        mkdir -p bin
+        cp *.apk bin/ 2>/dev/null || cpDist=$(find . -name "*.apk") && cp $cpDist bin/ || true
 
     - name: Upload APK Artifact
       uses: actions/upload-artifact@v4
