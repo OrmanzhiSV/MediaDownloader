@@ -7,7 +7,8 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    # Переключаем сервер на супер-стабильную Ubuntu 22.04, где рецепты libffi компилируются без ошибок
+    runs-on: ubuntu-22.04
 
     steps:
     - name: Checkout code
@@ -18,16 +19,57 @@ jobs:
       run: |
         echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
 
-    # Используем официальный, стабильный готовый плагин для автоматической сборки Kivy в контейнере
-    - name: Build APK with Official Buildozer Action
-      uses: ArtemSBulgakov/buildozer-action@v1
-      id: buildozer
+    - name: Set up Python
+      uses: actions/setup-python@v5
       with:
-        command: buildozer android debug
-        buildozer_version: stable
+        python-version: '3.11'
+
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: '17'
+
+    - name: Setup Android SDK
+      uses: android-actions/setup-android@v3
+      with:
+        packages: 'platform-tools'
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        # Устанавливаем чистые базовые пакеты, совместимые с Ubuntu 22.04
+        sudo apt-get install -y libsqlite3-dev lld cmake libffi-dev libssl-dev autoconf automake libtool pkg-config zlib1g-dev ccache texinfo git
+        python -m pip install --upgrade pip
+        python -m pip install "Cython<3.0.0" virtualenv setuptools wheel python-for-android jinja2 sh appdirs colorama
+
+    - name: Build APK with python-for-android
+      run: |
+        # Автоматически одобряем лицензии в SDK
+        yes | /usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager --licenses || true
+        
+        export ANDROID_SDK_ROOT=/usr/local/lib/android/sdk
+        export ANDROID_NDK_ROOT=/usr/local/lib/android/sdk/ndk-bundle
+        
+        # Прямой запуск компиляции. Использование hostpython3 и python3 
+        # автоматически синхронизирует и соберет стабильное окружение приложения.
+        p4a apk \
+          --private . \
+          --package=org.ormanzhisv.mediadownloader \
+          --name="Media Downloader" \
+          --version=1.0.0 \
+          --bootstrap=sdl2 \
+          --requirements=hostpython3,python3,kivy==2.3.0,requests,yt-dlp,urllib3,certifi,idna,jnius,android \
+          --arch=arm64-v8a \
+          --arch=armeabi-v7a \
+          --android-api 34 \
+          --release
+
+        mkdir -p bin
+        cp *.apk bin/ 2>/dev/null || cpDist=$(find . -name "*.apk") && cp $cpDist bin/ || true
 
     - name: Upload APK Artifact
       uses: actions/upload-artifact@v4
       with:
         name: MediaDownloader-APK-${{ env.date }}
-        path: ${{ steps.buildozer.outputs.filename }}
+        path: bin/*.apk
