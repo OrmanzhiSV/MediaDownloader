@@ -7,7 +7,6 @@ on:
 
 jobs:
   build:
-    # Переключаем сервер на супер-стабильную Ubuntu 22.04, где рецепты libffi компилируются без ошибок
     runs-on: ubuntu-22.04
 
     steps:
@@ -38,21 +37,22 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        # Устанавливаем чистые базовые пакеты, совместимые с Ubuntu 22.04
         sudo apt-get install -y libsqlite3-dev lld cmake libffi-dev libssl-dev autoconf automake libtool pkg-config zlib1g-dev ccache texinfo git
         python -m pip install --upgrade pip
-        python -m pip install "Cython<3.0.0" virtualenv setuptools wheel python-for-android jinja2 sh appdirs colorama
+        # Явно фиксируем Cython и сопутствующие инструменты для сборки колес (wheels)
+        python -m pip install "Cython<3.0.0" wheel setuptools virtualenv python-for-android jinja2 sh appdirs colorama build
 
     - name: Build APK with python-for-android
       run: |
-        # Автоматически одобряем лицензии в SDK
         yes | /usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager --licenses || true
         
         export ANDROID_SDK_ROOT=/usr/local/lib/android/sdk
         export ANDROID_NDK_ROOT=/usr/local/lib/android/sdk/ndk-bundle
         
-        # Прямой запуск компиляции. Использование hostpython3 и python3 
-        # автоматически синхронизирует и соберет стабильное окружение приложения.
+        # ХАК: Разрешаем внутреннему pip использовать глобально установленный Cython 
+        # во время сборки модуля android
+        export PIP_NO_BUILD_ISOLATION=0
+        
         p4a apk \
           --private . \
           --package=org.ormanzhisv.mediadownloader \
