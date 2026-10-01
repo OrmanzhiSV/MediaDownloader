@@ -18,17 +18,16 @@ jobs:
       run: |
         echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
 
-    # Используем официальный готовый Docker-контейнер Buildozer от разработчиков Kivy
-    - name: Build APK inside official Kivy Docker
-      uses: docker://kivy/buildozer:master
+    # Используем официальный, стабильный готовый плагин для автоматической сборки Kivy в контейнере
+    - name: Build APK with Official Buildozer Action
+      uses: ArtemSBulgakov/buildozer-action@v1
+      id: buildozer
       with:
-        # Инструкция для контейнера: запустить чистую сборку
-        args: buildozer android debug
-      env:
-        BUILDOZER_WARN_ON_ROOT: 0
+        command: buildozer android debug
+        buildozer_version: stable
 
     - name: Upload APK Artifact
       uses: actions/upload-artifact@v4
       with:
         name: MediaDownloader-APK-${{ env.date }}
-        path: bin/*.apk
+        path: ${{ steps.buildozer.outputs.filename }}
