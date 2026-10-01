@@ -39,8 +39,7 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y libsqlite3-dev lld cmake libffi-dev libssl-dev autoconf automake libtool pkg-config zlib1g-dev ccache texinfo
         python -m pip install --upgrade pip
-        python -m pip install "Cython<3.0.0" virtualenv setuptools wheel
-        python -m pip install git+https://github.com
+        python -m pip install "Cython<3.0.0" buildozer virtualenv setuptools wheel
 
     - name: Build with Buildozer
       run: |
