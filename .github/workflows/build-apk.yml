@@ -39,36 +39,41 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y libsqlite3-dev lld cmake libffi-dev libssl-dev autoconf automake libtool pkg-config zlib1g-dev ccache texinfo git
         python -m pip install --upgrade pip
-        # Устанавливаем стабильные версии инструментов для принудительного отключения утилиты build
-        python -m pip install "Cython<3.0.0" wheel "setuptools<60.0.0" virtualenv python-for-android jinja2 sh appdirs colorama build
+        python -m pip install "Cython<3.0.0" wheel setuptools virtualenv python-for-android jinja2 sh appdirs colorama build
 
     - name: Build APK with python-for-android
       run: |
         yes | /usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager --licenses || true
         
-        # Полное принудительное уничтожение скрытых папок кэша в текущей сессии
+        # ТОТАЛЬНАЯ ОЧИСТКА: Уничтожаем кэш p4a и buildozer во ВСЕХ возможных папках системы
         rm -rf /home/runner/.local/share/python-for-android/
+        rm -rf /root/.local/share/python-for-android/
+        rm -rf ~/.local/share/python-for-android/
         rm -rf .buildozer/
+        rm -rf ~/.buildozer/
         
         export ANDROID_SDK_ROOT=/usr/local/lib/android/sdk
         export ANDROID_NDK_ROOT=/usr/local/lib/android/sdk/ndk-bundle
         
-        # Подавление изоляции на уровне бэкенда утилиты build
+        # Перенаправляем внутренний кэш p4a в новую чистую рабочую папку текущей сессии,
+        # чтобы он физически не смог прочитать старый Python 3.14
+        export P4A_DATA_DIR="$GITHUB_WORKSPACE/.p4a_data"
+        mkdir -p "$P4A_DATA_DIR"
+        
+        # Полное подавление изоляции сред
         export PYTHON_BUILD_NO_ISOLATION=1
         export P4A_NO_BUILD_ISOLATION=1
         export PIP_NO_BUILD_ISOLATION=0
         export PIP_USE_PEP517=no
         export P4A_python3_version="3.11.9"
 
-        # Из требований полностью убраны jnius и android (они соберутся локально).
-        # Флаг --use-setup-py принудительно запретит использовать --only-binary.
         p4a apk \
           --private . \
           --package=org.ormanzhisv.mediadownloader \
           --name="Media Downloader" \
           --version=1.0.0 \
           --bootstrap=sdl2 \
-          --requirements=hostpython3,python3,kivy==2.3.0,requests,yt-dlp,urllib3,certifi,idna \
+          --requirements=hostpython3==3.11.9,python3==3.11.9,kivy==2.3.0,requests,yt-dlp,urllib3,certifi,idna \
           --arch=arm64-v8a \
           --arch=armeabi-v7a \
           --android-api 34 \
