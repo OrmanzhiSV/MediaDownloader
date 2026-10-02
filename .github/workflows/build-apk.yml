@@ -49,19 +49,20 @@ jobs:
         export ANDROID_SDK_ROOT=/usr/local/lib/android/sdk
         export ANDROID_NDK_ROOT=/usr/local/lib/android/sdk/ndk-bundle
         
-        # ЖЕСТКИЙ ХАК: Отключаем изоляцию встроенных сред сборки p4a.
-        # Это принудительно заставит внутренний 'python -m build' увидеть наш глобальный Cython
-        export P4A_NO_BUILD_ISOLATION=1
+        # Отключаем изоляцию на всех возможных уровнях системных утилит
         export PIP_NO_BUILD_ISOLATION=0
         export PIP_USE_PEP517=no
+        export P4A_NO_BUILD_ISOLATION=1
 
+        # Запускаем сборку с фиксацией современной версии pyjnius==1.8.0, 
+        # чтобы избежать ошибки No matching distribution found.
         p4a apk \
           --private . \
           --package=org.ormanzhisv.mediadownloader \
           --name="Media Downloader" \
           --version=1.0.0 \
           --bootstrap=sdl2 \
-          --requirements=hostpython3,python3,kivy==2.3.0,requests,yt-dlp,urllib3,certifi,idna,jnius,android \
+          --requirements=hostpython3,python3,kivy==2.3.0,requests,yt-dlp,urllib3,certifi,idna,pyjnius==1.8.0,android \
           --arch=arm64-v8a \
           --arch=armeabi-v7a \
           --android-api 34 \
