@@ -45,9 +45,8 @@ jobs:
       run: |
         yes | /usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager --licenses || true
         
-        # ТОТАЛЬНАЯ ОЧИСТКА: Уничтожаем кэш p4a и buildozer во ВСЕХ возможных папках системы
+        # БЕЗОПАСНАЯ ОЧИСТКА: Удаляем кэш только в доступных пользователю runner папках
         rm -rf /home/runner/.local/share/python-for-android/
-        rm -rf /root/.local/share/python-for-android/
         rm -rf ~/.local/share/python-for-android/
         rm -rf .buildozer/
         rm -rf ~/.buildozer/
@@ -55,12 +54,11 @@ jobs:
         export ANDROID_SDK_ROOT=/usr/local/lib/android/sdk
         export ANDROID_NDK_ROOT=/usr/local/lib/android/sdk/ndk-bundle
         
-        # Перенаправляем внутренний кэш p4a в новую чистую рабочую папку текущей сессии,
-        # чтобы он физически не смог прочитать старый Python 3.14
+        # Жестко изолируем рабочую директорию компилятора в текущем чистом пространстве
         export P4A_DATA_DIR="$GITHUB_WORKSPACE/.p4a_data"
         mkdir -p "$P4A_DATA_DIR"
         
-        # Полное подавление изоляции сред
+        # Тотальное подавление изоляции сред, ломающей Cython
         export PYTHON_BUILD_NO_ISOLATION=1
         export P4A_NO_BUILD_ISOLATION=1
         export PIP_NO_BUILD_ISOLATION=0
