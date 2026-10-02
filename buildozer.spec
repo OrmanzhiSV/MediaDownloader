@@ -7,7 +7,7 @@ source.include_exts = py,png,jpg,kv,atlas,json,ico
 version = 1.0.0
 
 # Зависимости, необходимые для работы Kivy и загрузки медиа
-requirements = python3,kivy==2.3.0,requests,yt-dlp,urllib3,certifi,idna,jnius,android
+requirements = python3,kivy==2.3.0,requests,yt-dlp,urllib3,certifi,idna
 
 orientation = portrait
 fullscreen = 0
