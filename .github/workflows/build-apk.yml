@@ -1,4 +1,4 @@
-name: Build Final APK
+name: Build Mobile App
 
 on:
   push:
@@ -39,28 +39,29 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y libsqlite3-dev lld cmake libffi-dev libssl-dev autoconf automake libtool pkg-config zlib1g-dev ccache texinfo git
         python -m pip install --upgrade pip
-        python -m pip install "Cython<3.0.0" wheel setuptools virtualenv python-for-android jinja2 sh appdirs colorama build
+        # Устанавливаем стабильные версии инструментов для принудительного отключения утилиты build
+        python -m pip install "Cython<3.0.0" wheel "setuptools<60.0.0" virtualenv python-for-android jinja2 sh appdirs colorama build
 
     - name: Build APK with python-for-android
       run: |
         yes | /usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager --licenses || true
         
-        # Тотальная очистка старых битых кэшей Python 3.14
+        # Полное принудительное уничтожение скрытых папок кэша в текущей сессии
         rm -rf /home/runner/.local/share/python-for-android/
         rm -rf .buildozer/
         
         export ANDROID_SDK_ROOT=/usr/local/lib/android/sdk
         export ANDROID_NDK_ROOT=/usr/local/lib/android/sdk/ndk-bundle
         
-        # Тотальное подавление изоляции сред, ломающей Cython
+        # Подавление изоляции на уровне бэкенда утилиты build
         export PYTHON_BUILD_NO_ISOLATION=1
         export P4A_NO_BUILD_ISOLATION=1
         export PIP_NO_BUILD_ISOLATION=0
         export PIP_USE_PEP517=no
         export P4A_python3_version="3.11.9"
 
-        # ВАЖНО: Мы добавили аргумент --ignore-setup-py и полностью очистили requirements. 
-        # Теперь p4a гарантированно не полезет в интернет за бинарниками Android/Pyjnius!
+        # Из требований полностью убраны jnius и android (они соберутся локально).
+        # Флаг --use-setup-py принудительно запретит использовать --only-binary.
         p4a apk \
           --private . \
           --package=org.ormanzhisv.mediadownloader \
@@ -72,7 +73,7 @@ jobs:
           --arch=armeabi-v7a \
           --android-api 34 \
           --skip-dependency-check \
-          --ignore-setup-py \
+          --use-setup-py \
           --release
 
         mkdir -p bin
