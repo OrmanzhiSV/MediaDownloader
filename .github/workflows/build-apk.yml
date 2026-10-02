@@ -48,26 +48,26 @@ jobs:
         export ANDROID_SDK_ROOT=/usr/local/lib/android/sdk
         export ANDROID_NDK_ROOT=/usr/local/lib/android/sdk/ndk-bundle
         
-        # Жестко требуем от p4a скачивать стабильный Python 3.11.9 для хост-компилятора
-        export P4A_python3_version="3.11.9"
-        
-        # Отключаем изоляцию для pip во всех дочерних процессах сборщика
+        # НАДЁЖНЫЙ ХАК: Записываем флаг отключения изоляции окружения напрямую 
+        # в конфигурацию pip и утилиты build для ВСЕХ интерпретаторов в системе
         export PIP_NO_BUILD_ISOLATION=0
         export PIP_USE_PEP517=no
         export P4A_NO_BUILD_ISOLATION=1
+        export PYTHON_BUILD_NO_ISOLATION=1
 
-        # Мы явно зафиксировали требования: hostpython3==3.11.9 и python3==3.11.9.
-        # Это заставит p4a полностью проигнорировать сырой Python 3.14.
+        # Добавляем флаг --rebuild. Он принудительно заставит p4a стереть старый 
+        # ошибочный кэш зависимостей и прочитать текущую чистую строку требований!
         p4a apk \
           --private . \
           --package=org.ormanzhisv.mediadownloader \
           --name="Media Downloader" \
           --version=1.0.0 \
           --bootstrap=sdl2 \
-          --requirements=hostpython3==3.11.9,python3==3.11.9,kivy==2.3.0,requests,yt-dlp,urllib3,certifi,idna,pyjnius==1.8.0,android \
+          --requirements=hostpython3,python3,kivy==2.3.0,requests,yt-dlp,urllib3,certifi,idna \
           --arch=arm64-v8a \
           --arch=armeabi-v7a \
           --android-api 34 \
+          --rebuild \
           --release
 
         mkdir -p bin
