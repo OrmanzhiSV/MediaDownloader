@@ -45,8 +45,7 @@ jobs:
       run: |
         yes | /usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager --licenses || true
         
-        # ТОТАЛЬНАЯ АДМИНИСТРАТИВНАЯ ОЧИСТКА КЭША
-        # Удаляем все скрытые временные файлы pip и архивы Python 3.14 по всей системе
+        # Полная административная очистка временных системных папок перед стартом
         sudo rm -rf /tmp/pip-*
         sudo rm -rf /home/runner/.cache/pip
         sudo rm -rf /root/.cache/pip
@@ -58,33 +57,37 @@ jobs:
         export ANDROID_SDK_ROOT=/usr/local/lib/android/sdk
         export ANDROID_NDK_ROOT=/usr/local/lib/android/sdk/ndk-bundle
         
-        # Полное подавление изоляции сред во всех системных утилитах
+        # Тотальное подавление изоляции сред во всех системных утилитах
         export PYTHON_BUILD_NO_ISOLATION=1
         export P4A_NO_BUILD_ISOLATION=1
         export PIP_NO_BUILD_ISOLATION=0
         export PIP_USE_PEP517=no
-        
-        # Жестко заставляем p4a скачивать архив 3.11.9
         export P4A_python3_version="3.11.9"
 
-        # Добавлен флаг --hook. Он принудительно заставит p4a проигнорировать 
-        # внутренние скрипты сборки build и переключит компиляцию модулей на классический setup.py
+        # ХАК ВСЕЙ СИСТЕМЫ СБОРКИ: Создаем скрипт-перехватчик sitecustomize.py для глобального Python.
+        # Он найдет скрытые вызовы 'python -m build' внутри p4a и насильно добавит аргументы
+        # '--no-isolation' и '--skip-dependency-check', ликвидируя ошибку ModuleNotFoundError: Cython.
+        SITE_DIR=$(python -c "import site; print(site.getsitepackages()[0])")
+        echo "import sys" > \$SITE_DIR/sitecustomize.py
+        echo "if 'build' in sys.argv and '--wheel' in sys.argv:" >> \$SITE_DIR/sitecustomize.py
+        echo "    if '--no-isolation' not in sys.argv:" >> \$SITE_DIR/sitecustomize.py
+        echo "        sys.argv.extend(['--no-isolation', '--skip-dependency-check'])" >> \$SITE_DIR/sitecustomize.py
+
         p4a apk \
           --private . \
           --package=org.ormanzhisv.mediadownloader \
           --name="Media Downloader" \
           --version=1.0.0 \
           --bootstrap=sdl2 \
-          --requirements=hostpython3==3.11.9,python3==3.11.9,kivy==2.3.0,requests,yt-dlp,urllib3,certifi,idna \
+          --requirements=hostpython3,python3,kivy==2.3.0,requests,yt-dlp,urllib3,certifi,idna \
           --arch=arm64-v8a \
           --arch=armeabi-v7a \
           --android-api 34 \
           --skip-dependency-check \
-          --use-setup-py \
           --release
 
         mkdir -p bin
-        cp *.apk bin/ 2>/dev/null || cpDist=$(find . -name "*.apk") && cp $cpDist bin/ || true
+        cp *.apk bin/ 2>/dev/null || cpDist=\$(find . -name "*.apk") && cp \$cpDist bin/ || true
 
     - name: Upload APK Artifact
       uses: actions/upload-artifact@v4
