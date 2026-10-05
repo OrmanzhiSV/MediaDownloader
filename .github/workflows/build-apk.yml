@@ -45,34 +45,45 @@ jobs:
       run: |
         yes | /usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager --licenses || true
         
-        # Полная очистка временных папок перед стартом
+        # Тотальное уничтожение любых скрытых системных папок кэша Python 3.14 перед чистым билдом
         sudo rm -rf /tmp/pip-*
         sudo rm -rf /home/runner/.cache/pip
         sudo rm -rf /root/.cache/pip
         rm -rf /home/runner/.local/share/python-for-android/
+        rm -rf ~/.local/share/python-for-android/
         rm -rf .buildozer/
         rm -rf ~/.buildozer/
         
         export ANDROID_SDK_ROOT=/usr/local/lib/android/sdk
         export ANDROID_NDK_ROOT=/usr/local/lib/android/sdk/ndk-bundle
         
-        # Тотальное подавление изоляции сред во всех системных утилитах
+        # Подавление изоляции на уровне глобальных переменных окружения pip
         export PYTHON_BUILD_NO_ISOLATION=1
         export P4A_NO_BUILD_ISOLATION=1
         export PIP_NO_BUILD_ISOLATION=0
         export PIP_USE_PEP517=no
         export P4A_python3_version="3.11.9"
 
-        # ИСПРАВЛЕННЫЙ ХАК: Получаем абсолютно чистую строку пути к папке site-packages 
-        # текущего интерпретатора без скобок и кавычек
-        PURE_SITE_DIR=$(python -c "import site; print([p for p in site.getsitepackages() if 'site-packages' in p or 'dist-packages' in p][0])")
+        # ЖЕЛЕЗОБЕТОННЫЙ ХАК ПЕРЕХВАТА ИСПОЛНЯЕМЫХ ФАЙЛОВ:
+        # Мы создаем локальную обертку для python в папке bin текущего пользователя.
+        # Если внутренние скрипты Kivy вызовут '-m build', наша обертка принудительно
+        # добавит флаги отключения изоляции, спасая Cython от блокировки!
+        mkdir -p /home/runner/bin
+        cat << 'EOF' > /home/runner/bin/python
+        #!/usr/bin/env python3
+        import sys
+        import subprocess
+
+        args = sys.argv[1:]
+        if len(args) >= 2 and args[0] == '-m' and args[1] == 'build':
+            if '--no-isolation' not in args:
+                args.extend(['--no-isolation', '--skip-dependency-check'])
+
+        sys.exit(subprocess.call(['/opt/hostedtoolcache/Python/3.11.16/x64/bin/python'] + args))
+        EOF
         
-        # Безопасно записываем перехватчик аргументов для утилиты 'build'
-        sudo chmod -R 777 "$PURE_SITE_DIR" || true
-        echo "import sys" > "$PURE_SITE_DIR/sitecustomize.py"
-        echo "if 'build' in sys.argv and '--wheel' in sys.argv:" >> "$PURE_SITE_DIR/sitecustomize.py"
-        echo "    if '--no-isolation' not in sys.argv:" >> "$PURE_SITE_DIR/sitecustomize.py"
-        echo "        sys.argv.extend(['--no-isolation', '--skip-dependency-check'])" >> "$PURE_SITE_DIR/sitecustomize.py"
+        chmod +x /home/runner/bin/python
+        export PATH=/home/runner/bin:$PATH
 
         p4a apk \
           --private . \
@@ -80,7 +91,7 @@ jobs:
           --name="Media Downloader" \
           --version=1.0.0 \
           --bootstrap=sdl2 \
-          --requirements=hostpython3,python3,kivy==2.3.0,requests,yt-dlp,urllib3,certifi,idna \
+          --requirements=hostpython3==3.11.9,python3==3.11.9,kivy==2.3.0,requests,yt-dlp,urllib3,certifi,idna \
           --arch=arm64-v8a \
           --arch=armeabi-v7a \
           --android-api 34 \
