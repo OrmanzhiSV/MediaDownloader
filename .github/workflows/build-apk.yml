@@ -45,12 +45,11 @@ jobs:
       run: |
         yes | /usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager --licenses || true
         
-        # Полная административная очистка временных системных папок перед стартом
+        # Полная очистка временных папок перед стартом
         sudo rm -rf /tmp/pip-*
         sudo rm -rf /home/runner/.cache/pip
         sudo rm -rf /root/.cache/pip
         rm -rf /home/runner/.local/share/python-for-android/
-        rm -rf ~/.local/share/python-for-android/
         rm -rf .buildozer/
         rm -rf ~/.buildozer/
         
@@ -64,14 +63,16 @@ jobs:
         export PIP_USE_PEP517=no
         export P4A_python3_version="3.11.9"
 
-        # ХАК ВСЕЙ СИСТЕМЫ СБОРКИ: Создаем скрипт-перехватчик sitecustomize.py для глобального Python.
-        # Он найдет скрытые вызовы 'python -m build' внутри p4a и насильно добавит аргументы
-        # '--no-isolation' и '--skip-dependency-check', ликвидируя ошибку ModuleNotFoundError: Cython.
-        SITE_DIR=$(python -c "import site; print(site.getsitepackages()[0])")
-        echo "import sys" > \$SITE_DIR/sitecustomize.py
-        echo "if 'build' in sys.argv and '--wheel' in sys.argv:" >> \$SITE_DIR/sitecustomize.py
-        echo "    if '--no-isolation' not in sys.argv:" >> \$SITE_DIR/sitecustomize.py
-        echo "        sys.argv.extend(['--no-isolation', '--skip-dependency-check'])" >> \$SITE_DIR/sitecustomize.py
+        # ИСПРАВЛЕННЫЙ ХАК: Получаем абсолютно чистую строку пути к папке site-packages 
+        # текущего интерпретатора без скобок и кавычек
+        PURE_SITE_DIR=$(python -c "import site; print([p for p in site.getsitepackages() if 'site-packages' in p or 'dist-packages' in p][0])")
+        
+        # Безопасно записываем перехватчик аргументов для утилиты 'build'
+        sudo chmod -R 777 "$PURE_SITE_DIR" || true
+        echo "import sys" > "$PURE_SITE_DIR/sitecustomize.py"
+        echo "if 'build' in sys.argv and '--wheel' in sys.argv:" >> "$PURE_SITE_DIR/sitecustomize.py"
+        echo "    if '--no-isolation' not in sys.argv:" >> "$PURE_SITE_DIR/sitecustomize.py"
+        echo "        sys.argv.extend(['--no-isolation', '--skip-dependency-check'])" >> "$PURE_SITE_DIR/sitecustomize.py"
 
         p4a apk \
           --private . \
@@ -87,7 +88,7 @@ jobs:
           --release
 
         mkdir -p bin
-        cp *.apk bin/ 2>/dev/null || cpDist=\$(find . -name "*.apk") && cp \$cpDist bin/ || true
+        cp *.apk bin/ 2>/dev/null || cpDist=$(find . -name "*.apk") && cp $cpDist bin/ || true
 
     - name: Upload APK Artifact
       uses: actions/upload-artifact@v4
