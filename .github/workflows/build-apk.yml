@@ -23,7 +23,7 @@ jobs:
     - name: Build APK inside GitHub Container
       uses: docker://ghcr.io/kivy/buildozer:latest
       with:
-        args: buildozer android debug
+        args: android debug
       env:
         BUILDOZER_WARN_ON_ROOT: 0
 
