@@ -18,6 +18,9 @@ log_level = 2
 warn_on_root = 0
 
 [android]
+
+android.accept_sdk_license = True
+
 # Архитектуры процессоров для сборки
 android.archs = armeabi-v7a, arm64-v8a
 
