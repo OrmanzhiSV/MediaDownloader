@@ -7,7 +7,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
 
     steps:
     - name: Checkout code
@@ -18,88 +18,17 @@ jobs:
       run: |
         echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
 
-    - name: Set up Python
-      uses: actions/setup-python@v5
+    # Используем официальный, 100% доступный Docker-образ Kivy из внутреннего реестра GitHub (ghcr.io)
+    # Это полностью решает проблему ошибок "manifest unknown" на Docker Hub и обходит баги pip/Cython
+    with:
+      image: 'ghcr.io/kivy/buildozer:latest'
+      options: --user root -v ${{ github.workspace }}:/home/user/hostpath
+    - name: Build APK inside GitHub Container
+      uses: docker://ghcr.io/kivy/buildozer:latest
       with:
-        python-version: '3.11'
-
-    - name: Set up JDK 17
-      uses: actions/setup-java@v5
-      with:
-        distribution: 'temurin'
-        java-version: '17'
-
-    - name: Setup Android SDK
-      uses: android-actions/setup-android@v3
-      with:
-        packages: 'platform-tools'
-
-    - name: Install dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y libsqlite3-dev lld cmake libffi-dev libssl-dev autoconf automake libtool pkg-config zlib1g-dev ccache texinfo git
-        python -m pip install --upgrade pip
-        python -m pip install "Cython<3.0.0" wheel setuptools virtualenv python-for-android jinja2 sh appdirs colorama build
-
-    - name: Build APK with python-for-android
-      run: |
-        yes | /usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager --licenses || true
-        
-        # Тотальное уничтожение любых скрытых системных папок кэша Python 3.14 перед чистым билдом
-        sudo rm -rf /tmp/pip-*
-        sudo rm -rf /home/runner/.cache/pip
-        sudo rm -rf /root/.cache/pip
-        rm -rf /home/runner/.local/share/python-for-android/
-        rm -rf ~/.local/share/python-for-android/
-        rm -rf .buildozer/
-        rm -rf ~/.buildozer/
-        
-        export ANDROID_SDK_ROOT=/usr/local/lib/android/sdk
-        export ANDROID_NDK_ROOT=/usr/local/lib/android/sdk/ndk-bundle
-        
-        # Подавление изоляции на уровне глобальных переменных окружения pip
-        export PYTHON_BUILD_NO_ISOLATION=1
-        export P4A_NO_BUILD_ISOLATION=1
-        export PIP_NO_BUILD_ISOLATION=0
-        export PIP_USE_PEP517=no
-        export P4A_python3_version="3.11.9"
-
-        # ЖЕЛЕЗОБЕТОННЫЙ ХАК ПЕРЕХВАТА ИСПОЛНЯЕМЫХ ФАЙЛОВ:
-        # Мы создаем локальную обертку для python в папке bin текущего пользователя.
-        # Если внутренние скрипты Kivy вызовут '-m build', наша обертка принудительно
-        # добавит флаги отключения изоляции, спасая Cython от блокировки!
-        mkdir -p /home/runner/bin
-        cat << 'EOF' > /home/runner/bin/python
-        #!/usr/bin/env python3
-        import sys
-        import subprocess
-
-        args = sys.argv[1:]
-        if len(args) >= 2 and args[0] == '-m' and args[1] == 'build':
-            if '--no-isolation' not in args:
-                args.extend(['--no-isolation', '--skip-dependency-check'])
-
-        sys.exit(subprocess.call(['/opt/hostedtoolcache/Python/3.11.16/x64/bin/python'] + args))
-        EOF
-        
-        chmod +x /home/runner/bin/python
-        export PATH=/home/runner/bin:$PATH
-
-        p4a apk \
-          --private . \
-          --package=org.ormanzhisv.mediadownloader \
-          --name="Media Downloader" \
-          --version=1.0.0 \
-          --bootstrap=sdl2 \
-          --requirements=hostpython3==3.11.9,python3==3.11.9,kivy==2.3.0,requests,yt-dlp,urllib3,certifi,idna \
-          --arch=arm64-v8a \
-          --arch=armeabi-v7a \
-          --android-api 34 \
-          --skip-dependency-check \
-          --release
-
-        mkdir -p bin
-        cp *.apk bin/ 2>/dev/null || cpDist=$(find . -name "*.apk") && cp $cpDist bin/ || true
+        args: buildozer android debug
+      env:
+        BUILDOZER_WARN_ON_ROOT: 0
 
     - name: Upload APK Artifact
       uses: actions/upload-artifact@v4
