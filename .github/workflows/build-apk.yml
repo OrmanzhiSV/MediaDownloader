@@ -18,11 +18,8 @@ jobs:
       run: |
         echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
 
-    # Используем официальный, 100% доступный Docker-образ Kivy из внутреннего реестра GitHub (ghcr.io)
-    # Это полностью решает проблему ошибок "manifest unknown" на Docker Hub и обходит баги pip/Cython
-    with:
-      image: 'ghcr.io/kivy/buildozer:latest'
-      options: --user root -v ${{ github.workspace }}:/home/user/hostpath
+    # Исправленный шаг: запускаем сборку внутри официального Docker-образа Kivy.
+    # Больше никаких лишних строк, ломающих синтаксис YAML.
     - name: Build APK inside GitHub Container
       uses: docker://ghcr.io/kivy/buildozer:latest
       with:
