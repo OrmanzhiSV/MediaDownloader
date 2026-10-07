@@ -18,25 +18,27 @@ jobs:
       run: |
         echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
 
-    # Исправлено: Очищен от опечаток. Создаем структуру лицензий Android SDK
-    # прямо в смонтированном домашнем каталоге Docker-контейнера
-    - name: Inject Android SDK Licenses into New Home Volume
+    # ХАК: Создаем локальную структуру каталогов и записываем туда лицензии Google.
+    # Мы смонтируем эту папку прямо вместо внутреннего кэша контейнера.
+    - name: Prepare Licenses and Build Directory
       run: |
-        mkdir -p .docker_home/.buildozer/android/platform/android-sdk/licenses
-        echo -e "\n893a5cd8e1b672669ab80f8db3ad48a32396d93a\n45f2d2d0b7b672669ab80f8db3ad48a32396d93a\n24333f1a50b6a8d67385315074ed226d875080be" > .docker_home/.buildozer/android/platform/android-sdk/licenses/android-sdk-license
-        echo -e "\n84831b9409646a918e30573bab4c9c91346d8abd\n504667f4c0de7af1a06de9f4b1727b84351f2910" > .docker_home/.buildozer/android/platform/android-sdk/licenses/android-sdk-preview-license
-        chmod -R 777 .docker_home/
+        mkdir -p .docker_buildozer/android/platform/android-sdk/licenses
+        echo -e "\n893a5cd8e1b672669ab80f8db3ad48a32396d93a\n45f2d2d0b7b672669ab80f8db3ad48a32396d93a\n24333f1a50b6a8d67385315074ed226d875080be" > .docker_buildozer/android/platform/android-sdk/licenses/android-sdk-license
+        echo -e "\n84831b9409646a918e30573bab4c9c91346d8abd\n504667f4c0de7af1a06de9f4b1727b84351f2910" > .docker_buildozer/android/platform/android-sdk/licenses/android-sdk-preview-license
+        chmod -R 777 .docker_buildozer/
 
-    # Запускаем сборку приложения. Docker использует встроенный путь к buildozer,
-    # а переопределенный HOME подхватит созданные нами лицензии Google
-    - name: Build APK inside GitHub Container
-      uses: docker://ghcr.io/kivy/buildozer:latest
-      with:
-        args: android debug
-      env:
-        BUILDOZER_WARN_ON_ROOT: 0
-        HOME: /github/workspace/.docker_home
-        APP_ANDROID_ACCEPT_SDK_LICENSE: "true"
+    # Ручной запуск Docker с маппингом домашней папки пользователя контейнера.
+    # Флаг -v привязывает внутреннюю папку /home/user/.buildozer к нашей .docker_buildozer с лицензиями!
+    # Флаг -u 0:0 запускает процесс от root, чтобы исключить любые проблемы с правами записи файлов.
+    - name: Run Buildozer via Manual Docker
+      run: |
+        docker run --rm \
+          -u 0:0 \
+          -v "$(pwd)":/github/workspace \
+          -v "$(pwd)/.docker_buildozer":/home/user/.buildozer \
+          -w /github/workspace \
+          -e BUILDOZER_WARN_ON_ROOT=0 \
+          ghcr.io/kivy/buildozer:latest android debug
 
     - name: Upload APK Artifact
       uses: actions/upload-artifact@v4
