@@ -18,33 +18,21 @@ jobs:
       run: |
         echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
 
-    # Готовим локальную папку с лицензиями Google
-    - name: Prepare Licenses and Build Directory
-      run: |
-        mkdir -p .docker_buildozer/android/platform/android-sdk/licenses
-        mkdir -p .docker_buildozer/android/platform/android-sdk/tools/bin
-        echo -e "\n893a5cd8e1b672669ab80f8db3ad48a32396d93a\n45f2d2d0b7b672669ab80f8db3ad48a32396d93a\n24333f1a50b6a8d67385315074ed226d875080be" > .docker_buildozer/android/platform/android-sdk/licenses/android-sdk-license
-        echo -e "\n84831b9409646a918e30573bab4c9c91346d8abd\n504667f4c0de7af1a06de9f4b1727b84351f2910" > .docker_buildozer/android/platform/android-sdk/licenses/android-sdk-preview-license
-        chmod -R 777 .docker_buildozer/
-
     # Сборка через ручной Docker.
-    # Жестко монтируем локальный кэш проекта прямо в системный профиль /root/.buildozer
-    # Это заставит Buildozer увидеть наши лицензии и созданный симлинк на любом этапе компиляции.
+    # Мы принудительно перенаправляем Buildozer на встроенный в Docker-образ Android SDK и NDK.
+    # Это полностью заблокирует скачивание дубликатов из интернета и обойдет баг с отсутствием папки tools/bin!
     - name: Run Buildozer via Manual Docker
       run: |
         docker run --rm \
-          -u 0:0 \
-          --entrypoint bash \
           -v "$(pwd)":/github/workspace \
-          -v "$(pwd)/.docker_buildozer":/root/.buildozer \
           -w /github/workspace \
           -e BUILDOZER_WARN_ON_ROOT=0 \
-          ghcr.io/kivy/buildozer:latest -c "
-            # Принудительно связываем пути внутри системной папки /root/
-            mkdir -p /root/.buildozer/android/platform/android-sdk/tools/bin/
-            ln -s /root/.buildozer/android/platform/android-sdk/cmdline-tools/latest/bin/sdkmanager /root/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager || true;
+          ghcr.io/kivy/buildozer:latest bash -c "
+            # Экспортируем железные пути к SDK и NDK, которые уже предустановлены авторами Kivy внутри контейнера
+            export ANDROID_SDK_ROOT=/home/user/.buildozer/android/platform/android-sdk
+            export ANDROID_NDK_ROOT=/home/user/.buildozer/android/platform/android-ndk-r25b
             
-            # Запускаем компиляцию приложения
+            # Запускаем компиляцию приложения напрямую
             buildozer android debug
           "
 
