@@ -18,10 +18,8 @@ jobs:
       run: |
         echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
 
-    # ХАК ДЛЯ DOCKER: Записываем хэш-ключи лицензий Google напрямую в новую домашнюю
-    # папку контейнера. Это заставит Buildozer пропустить любые запросы соглашения (y/N)
-    # для build-tools любой версии (включая 37).
-     Wilk:
+    # Исправлено: Очищен от опечаток. Создаем структуру лицензий Android SDK
+    # прямо в смонтированном домашнем каталоге Docker-контейнера
     - name: Inject Android SDK Licenses into New Home Volume
       run: |
         mkdir -p .docker_home/.buildozer/android/platform/android-sdk/licenses
@@ -29,8 +27,8 @@ jobs:
         echo -e "\n84831b9409646a918e30573bab4c9c91346d8abd\n504667f4c0de7af1a06de9f4b1727b84351f2910" > .docker_home/.buildozer/android/platform/android-sdk/licenses/android-sdk-preview-license
         chmod -R 777 .docker_home/
 
-    # Запускаем сборку приложения. Мы убрали 'entrypoint', позволив Docker использовать
-    # свой родной рабочий путь к бинарнику buildozer.
+    # Запускаем сборку приложения. Docker использует встроенный путь к buildozer,
+    # а переопределенный HOME подхватит созданные нами лицензии Google
     - name: Build APK inside GitHub Container
       uses: docker://ghcr.io/kivy/buildozer:latest
       with:
