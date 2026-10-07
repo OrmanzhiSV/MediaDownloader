@@ -18,7 +18,7 @@ jobs:
       run: |
         echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
 
-    # Готовим локальную структуру каталогов проекта и предустанавливаем лицензии Google
+    # Готовим локальную папку с лицензиями Google
     - name: Prepare Licenses and Build Directory
       run: |
         mkdir -p .docker_buildozer/android/platform/android-sdk/licenses
@@ -28,26 +28,23 @@ jobs:
         chmod -R 777 .docker_buildozer/
 
     # Сборка через ручной Docker.
-    # 1. Дублируем лицензии в системный профиль /root/.buildozer
-    # 2. Создаем симлинк (мост) между новым и старым sdkmanager, полностью закрывая ошибку "sdkmanager does not exist"
+    # Жестко монтируем локальный кэш проекта прямо в системный профиль /root/.buildozer
+    # Это заставит Buildozer увидеть наши лицензии и созданный симлинк на любом этапе компиляции.
     - name: Run Buildozer via Manual Docker
       run: |
         docker run --rm \
           -u 0:0 \
           --entrypoint bash \
           -v "$(pwd)":/github/workspace \
-          -v "$(pwd)/.docker_buildozer":/home/user/.buildozer \
+          -v "$(pwd)/.docker_buildozer":/root/.buildozer \
           -w /github/workspace \
           -e BUILDOZER_WARN_ON_ROOT=0 \
           ghcr.io/kivy/buildozer:latest -c "
+            # Принудительно связываем пути внутри системной папки /root/
             mkdir -p /root/.buildozer/android/platform/android-sdk/tools/bin/
-            cp -r /home/user/.buildozer/android/platform/android-sdk/licenses /root/.buildozer/android/platform/android-sdk/ || true;
-            
-            # Принудительно связываем пути: теперь старый путь tools/bin будет вести на рабочий cmdline-tools
             ln -s /root/.buildozer/android/platform/android-sdk/cmdline-tools/latest/bin/sdkmanager /root/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager || true;
-            ln -s /home/user/.buildozer/android/platform/android-sdk/cmdline-tools/latest/bin/sdkmanager /home/user/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager || true;
             
-            # Запускаем компиляцию
+            # Запускаем компиляцию приложения
             buildozer android debug
           "
 
