@@ -18,7 +18,7 @@ jobs:
       run: |
         echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
 
-    # Готовим локальную папку с лицензиями Google
+    # Готовим локальную структуру каталогов проекта и предустанавливаем лицензии Google
     - name: Prepare Licenses and Build Directory
       run: |
         mkdir -p .docker_buildozer/android/platform/android-sdk/licenses
@@ -28,9 +28,8 @@ jobs:
         chmod -R 777 .docker_buildozer/
 
     # Сборка через ручной Docker.
-    # Мы добавили команду "mkdir -p /root/.buildozer" и скопировали туда лицензии.
-    # Теперь, под каким бы пользователем внутри контейнера ни запустился Buildozer, 
-    # он гарантированно увидит принятые соглашения Android SDK.
+    # 1. Дублируем лицензии в системный профиль /root/.buildozer
+    # 2. Создаем симлинк (мост) между новым и старым sdkmanager, полностью закрывая ошибку "sdkmanager does not exist"
     - name: Run Buildozer via Manual Docker
       run: |
         docker run --rm \
@@ -41,10 +40,14 @@ jobs:
           -w /github/workspace \
           -e BUILDOZER_WARN_ON_ROOT=0 \
           ghcr.io/kivy/buildozer:latest -c "
-            mkdir -p /root/.buildozer/android/platform/android-sdk/
+            mkdir -p /root/.buildozer/android/platform/android-sdk/tools/bin/
             cp -r /home/user/.buildozer/android/platform/android-sdk/licenses /root/.buildozer/android/platform/android-sdk/ || true;
-            yes | /home/user/.buildozer/android/platform/android-sdk/cmdline-tools/latest/bin/sdkmanager --sdk_root=/root/.buildozer/android/platform/android-sdk --update || true;
-            yes | /home/user/.buildozer/android/platform/android-sdk/cmdline-tools/latest/bin/sdkmanager --sdk_root=/home/user/.buildozer/android/platform/android-sdk \"build-tools;37.0.0\" || true;
+            
+            # Принудительно связываем пути: теперь старый путь tools/bin будет вести на рабочий cmdline-tools
+            ln -s /root/.buildozer/android/platform/android-sdk/cmdline-tools/latest/bin/sdkmanager /root/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager || true;
+            ln -s /home/user/.buildozer/android/platform/android-sdk/cmdline-tools/latest/bin/sdkmanager /home/user/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager || true;
+            
+            # Запускаем компиляцию
             buildozer android debug
           "
 
