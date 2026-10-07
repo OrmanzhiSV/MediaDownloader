@@ -18,7 +18,8 @@ jobs:
       run: |
         echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
 
-    # Готовим локальную структуру каталогов проекта и предустанавливаем лицензии Google
+    # Готовим локальную структуру каталогов проекта и предустанавливаем лицензии Google.
+    # Создаем пустую папку tools/bin, чтобы обмануть проверку старых версий p4a.
     - name: Prepare Licenses and Build Directory
       run: |
         mkdir -p .docker_buildozer/android/platform/android-sdk/licenses
@@ -28,9 +29,8 @@ jobs:
         chmod -R 777 .docker_buildozer/
 
     # Сборка через ручной Docker.
-    # Мы убрали вызовы bash. Теперь папка с лицензиями пробрасывается флагами '-v'
-    # сразу во все возможные профили пользователей внутри контейнера (/home/user/ и /root/).
-    # Куда бы ни обратился Buildozer, он увидит принятые соглашения и созданные папки!
+    # Мы полностью убрали переопределение entrypoint и bash. 
+    # Флаги '-v' подсовывают наши лицензии во все учетные записи контейнера одновременно.
     - name: Run Buildozer via Manual Docker
       run: |
         docker run --rm \
