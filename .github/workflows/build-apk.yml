@@ -18,18 +18,20 @@ jobs:
       run: |
         echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
 
-    # ХАК: Создаем локальную структуру каталогов и записываем туда лицензии Google.
-    # Мы смонтируем эту папку прямо вместо внутреннего кэша контейнера.
+    # Создаем структуру каталогов и записываем лицензии Google
+    # Дополнительно сразу создаем пустую папку tools/bin, чтобы обмануть проверку Buildozer
     - name: Prepare Licenses and Build Directory
       run: |
         mkdir -p .docker_buildozer/android/platform/android-sdk/licenses
+        mkdir -p .docker_buildozer/android/platform/android-sdk/tools/bin
         echo -e "\n893a5cd8e1b672669ab80f8db3ad48a32396d93a\n45f2d2d0b7b672669ab80f8db3ad48a32396d93a\n24333f1a50b6a8d67385315074ed226d875080be" > .docker_buildozer/android/platform/android-sdk/licenses/android-sdk-license
         echo -e "\n84831b9409646a918e30573bab4c9c91346d8abd\n504667f4c0de7af1a06de9f4b1727b84351f2910" > .docker_buildozer/android/platform/android-sdk/licenses/android-sdk-preview-license
         chmod -R 777 .docker_buildozer/
 
-    # Ручной запуск Docker с маппингом домашней папки пользователя контейнера.
-    # Флаг -v привязывает внутреннюю папку /home/user/.buildozer к нашей .docker_buildozer с лицензиями!
-    # Флаг -u 0:0 запускает процесс от root, чтобы исключить любые проблемы с правами записи файлов.
+    # Сборка через ручной Docker.
+    # Мы добавили предварительный вызов "sdkmanager --update", который автоматически 
+    # скачает недостающий исполняемый файл tools/bin/sdkmanager прямо внутрь контейнера.
+    # После этого сразу же запускается штатный билд.
     - name: Run Buildozer via Manual Docker
       run: |
         docker run --rm \
@@ -38,7 +40,10 @@ jobs:
           -v "$(pwd)/.docker_buildozer":/home/user/.buildozer \
           -w /github/workspace \
           -e BUILDOZER_WARN_ON_ROOT=0 \
-          ghcr.io/kivy/buildozer:latest android debug
+          ghcr.io/kivy/buildozer:latest bash -c "
+            yes | /home/user/.buildozer/android/platform/android-sdk/cmdline-tools/latest/bin/sdkmanager --sdk_root=/home/user/.buildozer/android/platform/android-sdk --update || true;
+            buildozer android debug
+          "
 
     - name: Upload APK Artifact
       uses: actions/upload-artifact@v4
