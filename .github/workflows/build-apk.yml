@@ -18,7 +18,7 @@ jobs:
       run: |
         echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
 
-    # Создаем структуру каталогов и записываем лицензии Google
+    # Готовим локальную папку с лицензиями Google
     - name: Prepare Licenses and Build Directory
       run: |
         mkdir -p .docker_buildozer/android/platform/android-sdk/licenses
@@ -28,8 +28,9 @@ jobs:
         chmod -R 777 .docker_buildozer/
 
     # Сборка через ручной Docker.
-    # Флаг --entrypoint bash заставит контейнер проигнорировать стандартный вызов buildozer
-    # и позволит нам выполнить полноценный скрипт обновления SDK перед компиляцией.
+    # Мы добавили команду "mkdir -p /root/.buildozer" и скопировали туда лицензии.
+    # Теперь, под каким бы пользователем внутри контейнера ни запустился Buildozer, 
+    # он гарантированно увидит принятые соглашения Android SDK.
     - name: Run Buildozer via Manual Docker
       run: |
         docker run --rm \
@@ -40,7 +41,10 @@ jobs:
           -w /github/workspace \
           -e BUILDOZER_WARN_ON_ROOT=0 \
           ghcr.io/kivy/buildozer:latest -c "
-            yes | /home/user/.buildozer/android/platform/android-sdk/cmdline-tools/latest/bin/sdkmanager --sdk_root=/home/user/.buildozer/android/platform/android-sdk --update || true;
+            mkdir -p /root/.buildozer/android/platform/android-sdk/
+            cp -r /home/user/.buildozer/android/platform/android-sdk/licenses /root/.buildozer/android/platform/android-sdk/ || true;
+            yes | /home/user/.buildozer/android/platform/android-sdk/cmdline-tools/latest/bin/sdkmanager --sdk_root=/root/.buildozer/android/platform/android-sdk --update || true;
+            yes | /home/user/.buildozer/android/platform/android-sdk/cmdline-tools/latest/bin/sdkmanager --sdk_root=/home/user/.buildozer/android/platform/android-sdk \"build-tools;37.0.0\" || true;
             buildozer android debug
           "
 
