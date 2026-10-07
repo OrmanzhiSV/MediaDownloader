@@ -18,22 +18,27 @@ jobs:
       run: |
         echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
 
-    # ХАК ДЛЯ DOCKER: Создаем структуру папок Android SDK прямо в рабочем каталоге коммита.
-    # Мы принудительно записываем хэш-ключи согласия Google во внутренние файлы лицензий.
-    # Когда Docker-образ Kivy смонтирует эту папку, он увидит, что лицензии 37-й версии уже приняты!
-    - name: Pre-accept Android SDK Licenses for Docker
+    # ХАК ДЛЯ DOCKER: Создаем чистые папки для монтирования и принудительно 
+    # одобряем лицензии Google, записывая хэш-ключи согласия напрямую в файлы.
+    - name: Inject Android SDK Licenses into Docker Volume
       run: |
-        mkdir -p .buildozer/android/platform/android-sdk/licenses
-        echo -e "\n893a5cd8e1b672669ab80f8db3ad48a32396d93a\n45f2d2d0b7b672669ab80f8db3ad48a32396d93a\n24333f1a50b6a8d67385315074ed226d875080be" > .buildozer/android/platform/android-sdk/licenses/android-sdk-license
-        echo -e "\n84831b9409646a918e30573bab4c9c91346d8abd\n504667f4c0de7af1a06de9f4b1727b84351f2910" > .buildozer/android/platform/android-sdk/licenses/android-sdk-preview-license
-        chmod -R 777 .buildozer/
+        mkdir -p .docker_buildozer/android/platform/android-sdk/licenses
+        echo -e "\n893a5cd8e1b672669ab80f8db3ad48a32396d93a\n45f2d2d0b7b672669ab80f8db3ad48a32396d93a\n24333f1a50b6a8d67385315074ed226d875080be" > .docker_buildozer/android/platform/android-sdk/licenses/android-sdk-license
+        echo -e "\n84831b9409646a918e30573bab4c9c91346d8abd\n504667f4c0de7af1a06de9f4b1727b84351f2910" > .docker_buildozer/android/platform/android-sdk/licenses/android-sdk-preview-license
+        chmod -R 777 .docker_buildozer/
 
+    # Запускаем сборку приложения. Опция '-v' связывает папку настроек контейнера 
+    # с нашей одобренной локальной директорией, блокируя любые вопросы (y/N).
     - name: Build APK inside GitHub Container
       uses: docker://ghcr.io/kivy/buildozer:latest
       with:
+        entrypoint: /usr/local/bin/buildozer
         args: android debug
       env:
         BUILDOZER_WARN_ON_ROOT: 0
+        HOME: /github/workspace/.docker_home
+        # Заставляем внутренний p4a автоматически соглашаться с правилами SDK
+        APP_ANDROID_ACCEPT_SDK_LICENSE: "true"
 
     - name: Upload APK Artifact
       uses: actions/upload-artifact@v4
