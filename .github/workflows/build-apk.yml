@@ -19,7 +19,6 @@ jobs:
         echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
 
     # Создаем структуру каталогов и записываем лицензии Google
-    # Дополнительно сразу создаем пустую папку tools/bin, чтобы обмануть проверку Buildozer
     - name: Prepare Licenses and Build Directory
       run: |
         mkdir -p .docker_buildozer/android/platform/android-sdk/licenses
@@ -29,18 +28,18 @@ jobs:
         chmod -R 777 .docker_buildozer/
 
     # Сборка через ручной Docker.
-    # Мы добавили предварительный вызов "sdkmanager --update", который автоматически 
-    # скачает недостающий исполняемый файл tools/bin/sdkmanager прямо внутрь контейнера.
-    # После этого сразу же запускается штатный билд.
+    # Флаг --entrypoint bash заставит контейнер проигнорировать стандартный вызов buildozer
+    # и позволит нам выполнить полноценный скрипт обновления SDK перед компиляцией.
     - name: Run Buildozer via Manual Docker
       run: |
         docker run --rm \
           -u 0:0 \
+          --entrypoint bash \
           -v "$(pwd)":/github/workspace \
           -v "$(pwd)/.docker_buildozer":/home/user/.buildozer \
           -w /github/workspace \
           -e BUILDOZER_WARN_ON_ROOT=0 \
-          ghcr.io/kivy/buildozer:latest bash -c "
+          ghcr.io/kivy/buildozer:latest -c "
             yes | /home/user/.buildozer/android/platform/android-sdk/cmdline-tools/latest/bin/sdkmanager --sdk_root=/home/user/.buildozer/android/platform/android-sdk --update || true;
             buildozer android debug
           "
