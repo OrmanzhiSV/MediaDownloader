@@ -18,9 +18,7 @@ jobs:
       run: |
         echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
 
-    # Исправлено: Запись скрипта-обертки упрощена через echo, чтобы избежать конфликтов синтаксиса YAML
-    # Мы создаем пустую заглушку-мост, которая вернет статус "Успешно" при проверке путей p4a
-     charity:
+    # Создаем чистую структуру лицензий и заглушку-мост для sdkmanager на хосте
     - name: Pre-configure Android SDK and Licenses
       run: |
         mkdir -p .docker_buildozer/android/platform/android-sdk/tools/bin
