@@ -27,7 +27,7 @@ jobs:
         chmod -R 777 .docker_buildozer/
 
     # Сборка через самокорректирующийся Docker-сценарий.
-    # Мы создаем полноценный исполняемый bash-скрипт sdkmanager в обход ограничений p4a.
+    # Запись скрипта-заглушки sdkmanager упрощена до одной строки через echo, чтобы не ломать YAML.
     - name: Run Buildozer via Manual Docker
       run: |
         docker run --rm \
@@ -39,29 +39,22 @@ jobs:
           -w /github/workspace \
           -e BUILDOZER_WARN_ON_ROOT=0 \
           ghcr.io/kivy/buildozer:latest -c "
-            # Первичный запуск для генерации структуры папок
             buildozer android debug || {
-              echo 'Уничтожаем старые папки-заглушки и создаем бинарный мост для sdkmanager...';
+              echo 'Создаем исполняемый файл-мост для sdkmanager...';
               
-              # Удаляем мешающие пустые каталоги во всех профилях
               rm -rf /root/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager
               rm -rf /home/user/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager
               
               mkdir -p /root/.buildozer/android/platform/android-sdk/tools/bin/
               mkdir -p /home/user/.buildozer/android/platform/android-sdk/tools/bin/
               
-              # Создаем полноценный исполняемый скрипт-перехватчик для профиля root
-              cat << 'EOF' > /root/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager
-#!/bin/bash
-/root/.buildozer/android/platform/android-sdk/cmdline-tools/latest/bin/sdkmanager \"\$@\"
-EOF
+              # Записываем чистый bash-скрипт в одну строку в оба профиля системы
+              echo '#!/bin/bash' > /root/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager
+              echo '/root/.buildozer/android/platform/android-sdk/cmdline-tools/latest/bin/sdkmanager \"\$@\"' >> /root/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager
               chmod +x /root/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager
               
-              # Создаем идентичный исполняемый скрипт-перехватчик для профиля user
-              cat << 'EOF' > /home/user/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager
-#!/bin/bash
-/root/.buildozer/android/platform/android-sdk/cmdline-tools/latest/bin/sdkmanager \"\$@\"
-EOF
+              echo '#!/bin/bash' > /home/user/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager
+              echo '/root/.buildozer/android/platform/android-sdk/cmdline-tools/latest/bin/sdkmanager \"\$@\"' >> /home/user/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager
               chmod +x /home/user/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager
               
               echo 'Повторный запуск финальной компиляции...';
