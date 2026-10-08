@@ -27,8 +27,7 @@ jobs:
         chmod -R 777 .docker_buildozer/
 
     # Сборка через самокорректирующийся Docker-сценарий.
-    # Если первый запуск упадет из-за отсутствия папки tools/bin, скрипт перехватит ошибку,
-    # мгновенно свяжет скачанный cmdline-tools со старым путем и доведет сборку APK до успешного финала.
+    # Мы создаем полноценный исполняемый bash-скрипт sdkmanager в обход ограничений p4a.
     - name: Run Buildozer via Manual Docker
       run: |
         docker run --rm \
@@ -40,19 +39,32 @@ jobs:
           -w /github/workspace \
           -e BUILDOZER_WARN_ON_ROOT=0 \
           ghcr.io/kivy/buildozer:latest -c "
-            # Попытка 1: Пробуем запустить стандартную сборку, чтобы p4a скачал SDK
+            # Первичный запуск для генерации структуры папок
             buildozer android debug || {
-              echo 'Создаем принудительный символический мост для sdkmanager...';
+              echo 'Уничтожаем старые папки-заглушки и создаем бинарный мост для sdkmanager...';
               
-              # Воссоздаем структуру папок для профиля root и профиля user
+              # Удаляем мешающие пустые каталоги во всех профилях
+              rm -rf /root/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager
+              rm -rf /home/user/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager
+              
               mkdir -p /root/.buildozer/android/platform/android-sdk/tools/bin/
               mkdir -p /home/user/.buildozer/android/platform/android-sdk/tools/bin/
               
-              # Связываем старый путь с реально скачанным бинарником
-              ln -s /root/.buildozer/android/platform/android-sdk/cmdline-tools/latest/bin/sdkmanager /root/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager || true;
-              ln -s /root/.buildozer/android/platform/android-sdk/cmdline-tools/latest/bin/sdkmanager /home/user/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager || true;
+              # Создаем полноценный исполняемый скрипт-перехватчик для профиля root
+              cat << 'EOF' > /root/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager
+#!/bin/bash
+/root/.buildozer/android/platform/android-sdk/cmdline-tools/latest/bin/sdkmanager \"\$@\"
+EOF
+              chmod +x /root/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager
               
-              # Попытка 2: Запускаем финальную компиляцию, которая теперь гарантированно пройдет проверку путей
+              # Создаем идентичный исполняемый скрипт-перехватчик для профиля user
+              cat << 'EOF' > /home/user/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager
+#!/bin/bash
+/root/.buildozer/android/platform/android-sdk/cmdline-tools/latest/bin/sdkmanager \"\$@\"
+EOF
+              chmod +x /home/user/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager
+              
+              echo 'Повторный запуск финальной компиляции...';
               buildozer android debug
             }
           "
