@@ -18,35 +18,27 @@ jobs:
       run: |
         echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
 
-    # Создаем чистую структуру лицензий и заглушку-мост для sdkmanager на хосте
-    - name: Pre-configure Android SDK and Licenses
+    # Готовим локальную папку и принудительно подписываем лицензии Google на хосте.
+    # Файлы создаются с правами 777, что полностью исключает ошибки прав доступа.
+    - name: Pre-accept Android SDK Licenses
       run: |
-        mkdir -p .docker_buildozer/android/platform/android-sdk/tools/bin
         mkdir -p .docker_buildozer/android/platform/android-sdk/licenses
-
-        # Записываем лицензии Google напрямую во внутренний каталог проекта
         echo -e "\n893a5cd8e1b672669ab80f8db3ad48a32396d93a\n45f2d2d0b7b672669ab80f8db3ad48a32396d93a\n24333f1a50b6a8d67385315074ed226d875080be" > .docker_buildozer/android/platform/android-sdk/licenses/android-sdk-license
         echo -e "\n84831b9409646a918e30573bab4c9c91346d8abd\n504667f4c0de7af1a06de9f4b1727b84351f2910" > .docker_buildozer/android/platform/android-sdk/licenses/android-sdk-preview-license
-
-        # Создаем чистый однострочный исполняемый файл sdkmanager, который вернет статус успеха
-        echo '#!/bin/bash' > .docker_buildozer/android/platform/android-sdk/tools/bin/sdkmanager
-        echo 'exit 0' >> .docker_buildozer/android/platform/android-sdk/tools/bin/sdkmanager
-        
-        # Выдаем глобальные права 777 на исполнение файлов, полностью убирая ошибки Permission Denied
         chmod -R 777 .docker_buildozer/
 
-    # Сборка через ручной Docker. Мы пробрасываем подготовленный кэш сразу во все профили контейнера.
-    # Buildozer увидит созданную заглушку sdkmanager, успешно верифицирует пути и перейдет к компиляции.
-    - name: Run Buildozer via Manual Docker
-      run: |
-        docker run --rm \
-          -u 0:0 \
-          -v "$(pwd)":/github/workspace \
-          -v "$(pwd)/.docker_buildozer":/home/user/.buildozer \
-          -v "$(pwd)/.docker_buildozer":/root/.buildozer \
-          -w /github/workspace \
-          -e BUILDOZER_WARN_ON_ROOT=0 \
-          ghcr.io/kivy/buildozer:latest android debug
+    # Сборка через стандартный Docker-экшен Kivy. 
+    # Переменные окружения указывают Buildozer брать встроенные в образ SDK и NDK.
+    # Это полностью блокирует выкачивание дубликатов из сети и обходит любые баги путей!
+    - name: Run Buildozer inside GitHub Container
+      uses: docker://ghcr.io/kivy/buildozer:latest
+      with:
+        args: android debug
+      env:
+        BUILDOZER_WARN_ON_ROOT: 0
+        # Жестко указываем пути к идеальному рабочему SDK внутри Docker-образа
+        ANDROID_SDK_ROOT: /home/user/.buildozer/android/platform/android-sdk
+        ANDROID_NDK_ROOT: /home/user/.buildozer/android/platform/android-ndk-r25b
 
     - name: Upload APK Artifact
       uses: actions/upload-artifact@v4
