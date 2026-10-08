@@ -18,29 +18,44 @@ jobs:
       run: |
         echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
 
-    # Готовим локальную структуру каталогов проекта и предустанавливаем лицензии Google.
-    # Создаем пустую папку tools/bin, чтобы обмануть проверку старых версий p4a.
+    # Готовим локальную структуру каталогов проекта и предустанавливаем лицензии Google
     - name: Prepare Licenses and Build Directory
       run: |
         mkdir -p .docker_buildozer/android/platform/android-sdk/licenses
-        mkdir -p .docker_buildozer/android/platform/android-sdk/tools/bin
         echo -e "\n893a5cd8e1b672669ab80f8db3ad48a32396d93a\n45f2d2d0b7b672669ab80f8db3ad48a32396d93a\n24333f1a50b6a8d67385315074ed226d875080be" > .docker_buildozer/android/platform/android-sdk/licenses/android-sdk-license
         echo -e "\n84831b9409646a918e30573bab4c9c91346d8abd\n504667f4c0de7af1a06de9f4b1727b84351f2910" > .docker_buildozer/android/platform/android-sdk/licenses/android-sdk-preview-license
         chmod -R 777 .docker_buildozer/
 
-    # Сборка через ручной Docker.
-    # Мы полностью убрали переопределение entrypoint и bash. 
-    # Флаги '-v' подсовывают наши лицензии во все учетные записи контейнера одновременно.
+    # Сборка через самокорректирующийся Docker-сценарий.
+    # Если первый запуск упадет из-за отсутствия папки tools/bin, скрипт перехватит ошибку,
+    # мгновенно свяжет скачанный cmdline-tools со старым путем и доведет сборку APK до успешного финала.
     - name: Run Buildozer via Manual Docker
       run: |
         docker run --rm \
           -u 0:0 \
+          --entrypoint bash \
           -v "$(pwd)":/github/workspace \
           -v "$(pwd)/.docker_buildozer":/home/user/.buildozer \
           -v "$(pwd)/.docker_buildozer":/root/.buildozer \
           -w /github/workspace \
           -e BUILDOZER_WARN_ON_ROOT=0 \
-          ghcr.io/kivy/buildozer:latest android debug
+          ghcr.io/kivy/buildozer:latest -c "
+            # Попытка 1: Пробуем запустить стандартную сборку, чтобы p4a скачал SDK
+            buildozer android debug || {
+              echo 'Создаем принудительный символический мост для sdkmanager...';
+              
+              # Воссоздаем структуру папок для профиля root и профиля user
+              mkdir -p /root/.buildozer/android/platform/android-sdk/tools/bin/
+              mkdir -p /home/user/.buildozer/android/platform/android-sdk/tools/bin/
+              
+              # Связываем старый путь с реально скачанным бинарником
+              ln -s /root/.buildozer/android/platform/android-sdk/cmdline-tools/latest/bin/sdkmanager /root/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager || true;
+              ln -s /root/.buildozer/android/platform/android-sdk/cmdline-tools/latest/bin/sdkmanager /home/user/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager || true;
+              
+              # Попытка 2: Запускаем финальную компиляцию, которая теперь гарантированно пройдет проверку путей
+              buildozer android debug
+            }
+          "
 
     - name: Upload APK Artifact
       uses: actions/upload-artifact@v4
