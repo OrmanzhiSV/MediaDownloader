@@ -18,22 +18,22 @@ jobs:
       run: |
         echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
 
-    # Финальная чистая сборка напрямую через компилятор python-for-android внутри Docker.
-    # Метод полностью обходит устаревший код верификации путей Buildozer!
-    # Модули pyjnius и android Kivy соберет сам локально.
+    # Прямая сборка через компилятор python-for-android внутри Docker.
+    # Этот метод полностью изолирован от багов верификации путей утилиты Buildozer!
     - name: Run Direct Compiler via Docker
       run: |
         docker run --rm \
           -u 0:0 \
+          --entrypoint /bin/bash \
           -v "$(pwd)":/github/workspace \
           -w /github/workspace \
-          ghcr.io/kivy/buildozer:latest bash -c "
-            # 1. Принудительно одобряем лицензии Google внутри экосистемы контейнера
+          ghcr.io/kivy/buildozer:latest -c "
+            # 1. Принудительно генерируем одобренные лицензии внутри контейнера
             mkdir -p /root/.buildozer/android/platform/android-sdk/licenses
             echo -e '\n893a5cd8e1b672669ab80f8db3ad48a32396d93a\n45f2d2d0b7b672669ab80f8db3ad48a32396d93a\n24333f1a50b6a8d67385315074ed226d875080be' > /root/.buildozer/android/platform/android-sdk/licenses/android-sdk-license
             echo -e '\n84831b9409646a918e30573bab4c9c91346d8abd\n504667f4c0de7af1a06de9f4b1727b84351f2910' > /root/.buildozer/android/platform/android-sdk/licenses/android-sdk-preview-license
             
-            # 2. Вызываем напрямую p4a, блокируя любые падения из-за 'sdkmanager path does not exist'
+            # 2. Компилируем APK напрямую через p4a, блокируя любые проверки папки tools/bin
             p4a apk \
               --private . \
               --package=org.ormanzhisv.mediadownloader \
