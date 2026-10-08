@@ -27,7 +27,7 @@ jobs:
         chmod -R 777 .docker_buildozer/
 
     # Сборка через самокорректирующийся Docker-сценарий.
-    # Путь перенаправления в echo заменен на правильный cmdline-tools/tools/bin/sdkmanager.
+    # Скрипт-заглушка теперь использует динамический поиск 'find' для запуска реального sdkmanager.
     - name: Run Buildozer via Manual Docker
       run: |
         docker run --rm \
@@ -40,7 +40,7 @@ jobs:
           -e BUILDOZER_WARN_ON_ROOT=0 \
           ghcr.io/kivy/buildozer:latest -c "
             buildozer android debug || {
-              echo 'Создаем точный исполняемый файл-мост для sdkmanager...';
+              echo 'Запуск умного перехватчика путей для sdkmanager...';
               
               rm -rf /root/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager
               rm -rf /home/user/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager
@@ -48,16 +48,17 @@ jobs:
               mkdir -p /root/.buildozer/android/platform/android-sdk/tools/bin/
               mkdir -p /home/user/.buildozer/android/platform/android-sdk/tools/bin/
               
-              # Записываем исправленный bash-скрипт (latest заменен на tools)
+              # Создаем скрипт с динамическим поиском исполняемого файла
               echo '#!/bin/bash' > /root/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager
-              echo '/root/.buildozer/android/platform/android-sdk/cmdline-tools/tools/bin/sdkmanager \"\$@\"' >> /root/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager
+              echo 'REAL_SDK=\$(find /root/.buildozer/android/platform/android-sdk/cmdline-tools/ -name sdkmanager | head -n 1)' >> /root/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager
+              echo 'exec \"\$REAL_SDK\" \"\$@\"' >> /root/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager
               chmod +x /root/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager
               
-              echo '#!/bin/bash' > /home/user/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager
-              echo '/root/.buildozer/android/platform/android-sdk/cmdline-tools/tools/bin/sdkmanager \"\$@\"' >> /home/user/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager
+              # Дублируем умный скрипт во второй профиль системы
+              cp /root/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager /home/user/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager
               chmod +x /home/user/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager
               
-              echo 'Повторный запуск финальной компиляции...';
+              echo 'Повторный запуск компиляции с динамическими путями...';
               buildozer android debug
             }
           "
