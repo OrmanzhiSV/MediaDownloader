@@ -18,39 +18,53 @@ jobs:
       run: |
         echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
 
-    # Сборка с явным указанием выходного каталога проекта для Docker
-    - name: Run Direct Compiler via Docker
+    # Готовим локальную структуру каталогов проекта и предустанавливаем лицензии Google
+    - name: Prepare Licenses and Build Directory
+      run: |
+        mkdir -p .docker_buildozer/android/platform/android-sdk/licenses
+        echo -e "\n893a5cd8e1b672669ab80f8db3ad48a32396d93a\n45f2d2d0b7b672669ab80f8db3ad48a32396d93a\n24333f1a50b6a8d67385315074ed226d875080be" > .docker_buildozer/android/platform/android-sdk/licenses/android-sdk-license
+        echo -e "\n84831b9409646a918e30573bab4c9c91346d8abd\n504667f4c0de7af1a06de9f4b1727b84351f2910" > .docker_buildozer/android/platform/android-sdk/licenses/android-sdk-preview-license
+        chmod -R 777 .docker_buildozer/
+
+    # Сборка через самокорректирующийся Docker-сценарий.
+    # Если Buildozer упадет из-за отсутствия папки tools/bin, блок || { ... } перехватит управление,
+    # динамически найдет реальный sdkmanager и свяжет его символическим мостом со старым путем.
+    - name: Run Buildozer via Manual Docker
       run: |
         docker run --rm \
           -u 0:0 \
           --entrypoint /bin/bash \
           -v "$(pwd)":/github/workspace \
           -w /github/workspace \
+          -v "$(pwd)/.docker_buildozer":/root/.buildozer \
+          -v "$(pwd)/.docker_buildozer":/home/user/.buildozer \
+          -e BUILDOZER_WARN_ON_ROOT=0 \
           ghcr.io/kivy/buildozer:latest -c "
-            mkdir -p /root/.buildozer/android/platform/android-sdk/licenses
-            echo -e '\n893a5cd8e1b672669ab80f8db3ad48a32396d93a\n45f2d2d0b7b672669ab80f8db3ad48a32396d93a\n24333f1a50b6a8d67385315074ed226d875080be' > /root/.buildozer/android/platform/android-sdk/licenses/android-sdk-license
-            echo -e '\n84831b9409646a918e30573bab4c9c91346d8abd\n504667f4c0de7af1a06de9f4b1727b84351f2910' > /root/.buildozer/android/platform/android-sdk/licenses/android-sdk-preview-license
-            
-            # Создаем целевую папку на хосте
-            mkdir -p /github/workspace/bin
-            
-            # Добавлен аргумент --output-dir. Он принудительно сохранит готовый APK
-            # в смонтированную папку bin вашего репозитория до закрытия контейнера.
-            p4a apk \
-              --private . \
-              --package=org.ormanzhisv.mediadownloader \
-              --name='Media Downloader' \
-              --version=1.0.0 \
-              --bootstrap=sdl2 \
-              --requirements=hostpython3,python3,kivy==2.3.0,requests,yt-dlp,urllib3,certifi,idna \
-              --arch=arm64-v8a \
-              --arch=armeabi-v7a \
-              --android-api 34 \
-              --output-dir=/github/workspace/bin \
-              --release
+            buildozer android debug || {
+              echo 'Запуск автоматического исправления путей SDK...';
+              
+              # Находим, куда конкретно распаковался реальный sdkmanager
+              REAL_SDK=\$(find /root/.buildozer/android/platform/android-sdk/cmdline-tools/ -name sdkmanager | head -n 1)
+              
+              if [ -n \"\$REAL_SDK\" ]; then
+                echo \"Реальный sdkmanager найден по пути: \$REAL_SDK\"
+                mkdir -p /root/.buildozer/android/platform/android-sdk/tools/bin/
+                
+                # Создаем символическую ссылку-мост
+                ln -sf \"\$REAL_SDK\" /root/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager
+                echo 'Символический мост успешно построен!'
+              else
+                echo 'Предупреждение: cmdline-tools еще не скачан, создаем базовую структуру'
+                mkdir -p /root/.buildozer/android/platform/android-sdk/tools/bin/
+                touch /root/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager
+              fi
+              
+              echo 'Повторный запуск компиляции с исправленными путями...';
+              buildozer android debug
+            }
           "
 
-    # Теперь экшен гарантированно найдет готовые файлы в папке проекта
+    # Выгрузка APK артефактов из смонтированной папки проекта
     - name: Upload APK Artifact
       uses: actions/upload-artifact@v4
       with:
