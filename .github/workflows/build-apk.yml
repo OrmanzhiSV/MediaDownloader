@@ -18,50 +18,43 @@ jobs:
       run: |
         echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
 
-    # Готовим локальную структуру каталогов проекта и предустанавливаем лицензии Google
-    - name: Prepare Licenses and Build Directory
+    # Предустанавливаем cmdline-tools от Google и лицензии прямо на хосте GitHub Actions
+    - name: Pre-install Android Command Line Tools and Licenses
       run: |
+        # 1. Создаем структуру папок Android SDK
+        mkdir -p .docker_buildozer/android/platform/android-sdk/cmdline-tools/tools/bin
+        mkdir -p .docker_buildozer/android/platform/android-sdk/tools/bin
         mkdir -p .docker_buildozer/android/platform/android-sdk/licenses
+
+        # 2. Скачиваем официальный стабильный cmdline-tools от Google (подменяем его для p4a)
+        curl -sL https://google.com -o cmdline.zip
+        unzip -q cmdline.zip
+        # Переносим распакованные бинарники в структуру каталогов Buildozer
+        cp -r cmdline-tools/* .docker_buildozer/android/platform/android-sdk/cmdline-tools/tools/
+        rm -rf cmdline-tools cmdline.zip
+
+        # 3. Инжектируем официальные хэш-ключи лицензий Google, обходя любые запросы (y/N)
         echo -e "\n893a5cd8e1b672669ab80f8db3ad48a32396d93a\n45f2d2d0b7b672669ab80f8db3ad48a32396d93a\n24333f1a50b6a8d67385315074ed226d875080be" > .docker_buildozer/android/platform/android-sdk/licenses/android-sdk-license
         echo -e "\n84831b9409646a918e30573bab4c9c91346d8abd\n504667f4c0de7af1a06de9f4b1727b84351f2910" > .docker_buildozer/android/platform/android-sdk/licenses/android-sdk-preview-license
+
+        # 4. Создаем жесткий bash-перехватчик для старого пути sdkmanager
+        echo '#!/bin/bash' > .docker_buildozer/android/platform/android-sdk/tools/bin/sdkmanager
+        echo 'exec /root/.buildozer/android/platform/android-sdk/cmdline-tools/tools/bin/sdkmanager "$@"' >> .docker_buildozer/android/platform/android-sdk/tools/bin/sdkmanager
+        
+        # Выдаем полные права на чтение и исполнение файлов внутри контейнера
         chmod -R 777 .docker_buildozer/
 
-    # Сборка через самокорректирующийся Docker-сценарий.
-    # Скрипт-заглушка теперь использует динамический поиск 'find' для запуска реального sdkmanager.
+    # Чистый запуск Docker. Теперь все инструменты и лицензии развернуты до старта компиляции!
     - name: Run Buildozer via Manual Docker
       run: |
         docker run --rm \
           -u 0:0 \
-          --entrypoint bash \
           -v "$(pwd)":/github/workspace \
           -v "$(pwd)/.docker_buildozer":/home/user/.buildozer \
           -v "$(pwd)/.docker_buildozer":/root/.buildozer \
           -w /github/workspace \
           -e BUILDOZER_WARN_ON_ROOT=0 \
-          ghcr.io/kivy/buildozer:latest -c "
-            buildozer android debug || {
-              echo 'Запуск умного перехватчика путей для sdkmanager...';
-              
-              rm -rf /root/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager
-              rm -rf /home/user/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager
-              
-              mkdir -p /root/.buildozer/android/platform/android-sdk/tools/bin/
-              mkdir -p /home/user/.buildozer/android/platform/android-sdk/tools/bin/
-              
-              # Создаем скрипт с динамическим поиском исполняемого файла
-              echo '#!/bin/bash' > /root/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager
-              echo 'REAL_SDK=\$(find /root/.buildozer/android/platform/android-sdk/cmdline-tools/ -name sdkmanager | head -n 1)' >> /root/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager
-              echo 'exec \"\$REAL_SDK\" \"\$@\"' >> /root/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager
-              chmod +x /root/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager
-              
-              # Дублируем умный скрипт во второй профиль системы
-              cp /root/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager /home/user/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager
-              chmod +x /home/user/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager
-              
-              echo 'Повторный запуск компиляции с динамическими путями...';
-              buildozer android debug
-            }
-          "
+          ghcr.io/kivy/buildozer:latest android debug
 
     - name: Upload APK Artifact
       uses: actions/upload-artifact@v4
