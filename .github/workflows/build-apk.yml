@@ -8,6 +8,12 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    
+    # ПРАВИЛЬНЫЙ СИНТАКСИС: Объявляем Docker-контейнер Kivy на уровне всей задачи.
+    # Директива options связывает локальный кэш хоста с изолированной папкой пользователя контейнера.
+    container:
+      image: ghcr.io/kivy/buildozer:latest
+      options: -v /home/runner/work/MediaDownloader/MediaDownloader/.buildozer_cache:/home/user/.buildozer
 
     steps:
     - name: Checkout code
@@ -18,22 +24,18 @@ jobs:
       run: |
         echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
 
-    # 1. Заранее генерируем на хосте правильную структуру папок и лицензий
+    # Генерируем структуру папок и лицензий напрямую внутри смонтированного кэша
     - name: Pre-accept Android SDK Licenses
       run: |
-        mkdir -p .buildozer_cache/android/platform/android-sdk/licenses
-        echo -e "\n893a5cd8e1b672669ab80f8db3ad48a32396d93a\n45f2d2d0b7b672669ab80f8db3ad48a32396d93a\n24333f1a50b6a8d67385315074ed226d875080be" > .buildozer_cache/android/platform/android-sdk/licenses/android-sdk-license
-        echo -e "\n84831b9409646a918e30573bab4c9c91346d8abd\n504667f4c0de7af1a06de9f4b1727b84351f2910" > .buildozer_cache/android/platform/android-sdk/licenses/android-sdk-preview-license
-        # Даем полные права доступа, чтобы Docker-контейнер мог читать файлы под любым пользователем
-        chmod -R 777 .buildozer_cache/
+        mkdir -p /home/runner/work/MediaDownloader/MediaDownloader/.buildozer_cache/android/platform/android-sdk/licenses
+        echo -e "\n893a5cd8e1b672669ab80f8db3ad48a32396d93a\n45f2d2d0b7b672669ab80f8db3ad48a32396d93a\n24333f1a50b6a8d67385315074ed226d875080be" > /home/runner/work/MediaDownloader/MediaDownloader/.buildozer_cache/android/platform/android-sdk/licenses/android-sdk-license
+        echo -e "\n84831b9409646a918e30573bab4c9c91346d8abd\n504667f4c0de7af1a06de9f4b1727b84351f2910" > /home/runner/work/MediaDownloader/MediaDownloader/.buildozer_cache/android/platform/android-sdk/licenses/android-sdk-preview-license
+        chmod -R 777 /home/runner/work/MediaDownloader/MediaDownloader/.buildozer_cache/
 
-    # 2. Запускаем сборку. Блок options — ключевой инструмент. 
-    # Он сквозным образом связывает локальную папку .buildozer_cache с внутренней изолированной папкой /home/user/.buildozer контейнера.
-    - name: Run Buildozer inside GitHub Container
-      uses: docker://ghcr.io/kivy/buildozer:latest
-      with:
-        args: buildozer android debug
-      options: -v ${{ github.workspace }}/.buildozer_cache:/home/user/.buildozer
+    # Запускаем прямую сборку. Buildozer теперь имеет беспрепятственный доступ к подписанным лицензиям.
+    - name: Run Buildozer Build
+      run: |
+        buildozer android debug
       env:
         BUILDOZER_WARN_ON_ROOT: 0
 
