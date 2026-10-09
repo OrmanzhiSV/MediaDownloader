@@ -18,34 +18,61 @@ jobs:
       run: |
         echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
 
-    # ХАК ДЛЯ DOCKER: Создаем локальную структуру каталогов и записываем туда лицензии Google.
-    - name: Prepare Licenses and Build Directory
-      run: |
-        mkdir -p .docker_buildozer/android/platform/android-sdk/licenses
-        echo -e "\n893a5cd8e1b672669ab80f8db3ad48a32396d93a\n45f2d2d0b7b672669ab80f8db3ad48a32396d93a\n24333f1a50b6a8d67385315074ed226d875080be" > .docker_buildozer/android/platform/android-sdk/licenses/android-sdk-license
-        echo -e "\n84831b9409646a918e30573bab4c9c91346d8abd\n504667f4c0de7af1a06de9f4b1727b84351f2910" > .docker_buildozer/android/platform/android-sdk/licenses/android-sdk-preview-license
-        chmod -R 777 .docker_buildozer/
-
-    # Ручной запуск Docker с исправленным флагом окружения (-e BUILDOZER_WARN_ON_ROOT=0)
-    # Зеркалирование путей пробросит принятые лицензии сразу во все возможные системные профили.
+    # Сборка через самокорректирующийся Docker-сценарий.
+    # Внутренний скрипт bash -c создает одобренные лицензии во всех возможных 
+    # системных профилях контейнера (/root, /home/user, /github/home) до старта сборки.
     - name: Run Buildozer via Manual Docker
       run: |
         docker run --rm \
           -u 0:0 \
-          --entrypoint buildozer \
+          --entrypoint /bin/bash \
           -v "$(pwd)":/github/workspace \
-          -v "$(pwd)/.docker_buildozer":/home/user/.buildozer \
-          -v "$(pwd)/.docker_buildozer":/root/.buildozer \
-          -v "$(pwd)/.docker_buildozer":/github/home/.buildozer \
           -w /github/workspace \
           -e BUILDOZER_WARN_ON_ROOT=0 \
-          ghcr.io/kivy/buildozer:latest android debug
+          ghcr.io/kivy/buildozer:latest -c "
+            # 1. Принудительно генерируем одобренные лицензии во всех профилях внутри контейнера
+            mkdir -p /root/.buildozer/android/platform/android-sdk/licenses
+            mkdir -p /home/user/.buildozer/android/platform/android-sdk/licenses
+            mkdir -p /github/home/.buildozer/android/platform/android-sdk/licenses
+            
+            # Пишем хэши согласия Google в профиль root
+            echo -e '\n893a5cd8e1b672669ab80f8db3ad48a32396d93a\n45f2d2d0b7b672669ab80f8db3ad48a32396d93a\n24333f1a50b6a8d67385315074ed226d875080be' > /root/.buildozer/android/platform/android-sdk/licenses/android-sdk-license
+            echo -e '\n84831b9409646a918e30573bab4c9c91346d8abd\n504667f4c0de7af1a06de9f4b1727b84351f2910' > /root/.buildozer/android/platform/android-sdk/licenses/android-sdk-preview-license
+            
+            # Дублируем лицензии во все остальные папки учетных записей контейнера
+            cp -r /root/.buildozer/android/platform/android-sdk/licenses /home/user/.buildozer/android/platform/android-sdk/ || true
+            cp -r /root/.buildozer/android/platform/android-sdk/licenses /github/home/.buildozer/android/platform/android-sdk/ || true
+            
+            # 2. Запускаем компиляцию приложения. Теперь p4a не выдаст запрос Accept? (y/N)
+            buildozer android debug || {
+              echo 'Перехват: принудительно создаем файл-мост для sdkmanager...';
+              
+              # Воссоздаем папки проверок путей
+              mkdir -p /root/.buildozer/android/platform/android-sdk/tools/bin/
+              mkdir -p /github/home/.buildozer/android/platform/android-sdk/tools/bin/
+              
+              # Находим, куда конкретно распаковался реальный sdkmanager
+              REAL_SDK=\$(find /root/.buildozer/android/platform/android-sdk/cmdline-tools/ -name sdkmanager 2>/dev/null | head -n 1)
+              if [ -z \"\$REAL_SDK\" ]; then
+                REAL_SDK=\$(find /github/home/.buildozer/android/platform/android-sdk/cmdline-tools/ -name sdkmanager 2>/dev/null | head -n 1)
+              fi
+              
+              # Связываем старый путь с реально скачанным бинарником через симлинк-мост
+              if [ -n \"\$REAL_SDK\" ]; then
+                ln -sf \"\$REAL_SDK\" /root/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager || true
+                ln -sf \"\$REAL_SDK\" /github/home/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager || true
+              fi
+              
+              # Повторный запуск компиляции, который теперь успешно верифицирует пути
+              buildozer android debug
+            }
+          "
 
-    # Выгрузка APK артефактов из выходной папки проекта
+    # Выгрузка APK артефактов из выходной папки проекта хоста
     - name: Upload APK Artifact
       uses: actions/upload-artifact@v4
       with:
         name: MediaDownloader-APK-${{ env.date }}
         path: |
           bin/*.apk
-          .docker_buildozer/**/*.apk
+          .buildozer/**/*.apk
