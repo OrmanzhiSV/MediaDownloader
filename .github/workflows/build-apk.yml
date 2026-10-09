@@ -18,51 +18,28 @@ jobs:
       run: |
         echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
 
-    # Сборка через самокорректирующийся Docker-сценарий.
-    # Если Buildozer упадет из-за отсутствия папки tools/bin, блок || { ... } перехватит управление,
-    # автоматически воссоздаст структуру каталогов внутри контейнера и свяжет sdkmanager мостом.
+    # ХАК ДЛЯ DOCKER: Создаем локальную структуру каталогов и записываем туда лицензии Google.
+    - name: Prepare Licenses and Build Directory
+      run: |
+        mkdir -p .docker_buildozer/android/platform/android-sdk/licenses
+        echo -e "\n893a5cd8e1b672669ab80f8db3ad48a32396d93a\n45f2d2d0b7b672669ab80f8db3ad48a32396d93a\n24333f1a50b6a8d67385315074ed226d875080be" > .docker_buildozer/android/platform/android-sdk/licenses/android-sdk-license
+        echo -e "\n84831b9409646a918e30573bab4c9c91346d8abd\n504667f4c0de7af1a06de9f4b1727b84351f2910" > .docker_buildozer/android/platform/android-sdk/licenses/android-sdk-preview-license
+        chmod -R 777 .docker_buildozer/
+
+    # Ручной запуск Docker с исправленным флагом окружения (-e BUILDOZER_WARN_ON_ROOT=0)
+    # Зеркалирование путей пробросит принятые лицензии сразу во все возможные системные профили.
     - name: Run Buildozer via Manual Docker
       run: |
         docker run --rm \
           -u 0:0 \
-          --entrypoint /bin/bash \
+          --entrypoint buildozer \
           -v "$(pwd)":/github/workspace \
+          -v "$(pwd)/.docker_buildozer":/home/user/.buildozer \
+          -v "$(pwd)/.docker_buildozer":/root/.buildozer \
+          -v "$(pwd)/.docker_buildozer":/github/home/.buildozer \
           -w /github/workspace \
-          e BUILDOZER_WARN_ON_ROOT=0 \
-          ghcr.io/kivy/buildozer:latest -c "
-            # Попытка 1: Запускаем билд, чтобы p4a скачал SDK и распаковал cmdline-tools
-            buildozer android debug || {
-              echo 'Перехват ошибки: строим внутренний символический мост для sdkmanager...';
-              
-              # Принудительно создаем целевые папки проверок Kivy внутри контейнера
-              mkdir -p /root/.buildozer/android/platform/android-sdk/tools/bin/
-              mkdir -p /github/home/.buildozer/android/platform/android-sdk/tools/bin/
-              
-              # Инжектируем официальные хэш-ключи лицензий Google, полностью убирая запросы (y/N)
-              mkdir -p /root/.buildozer/android/platform/android-sdk/licenses
-              echo -e '\n893a5cd8e1b672669ab80f8db3ad48a32396d93a\n45f2d2d0b7b672669ab80f8db3ad48a32396d93a\n24333f1a50b6a8d67385315074ed226d875080be' > /root/.buildozer/android/platform/android-sdk/licenses/android-sdk-license
-              echo -e '\n84831b9409646a918e30573bab4c9c91346d8abd\n504667f4c0de7af1a06de9f4b1727b84351f2910' > /root/.buildozer/android/platform/android-sdk/licenses/android-sdk-preview-license
-
-              # Находим, куда конкретно Google распаковал реальный исполняемый файл sdkmanager
-              REAL_SDK=\$(find /root/.buildozer/android/platform/android-sdk/cmdline-tools/ -name sdkmanager | head -n 1)
-              
-              if [ -n \"\$REAL_SDK\" ]; then
-                echo \"Реальный исполняемый файл найден по пути: \$REAL_SDK\"
-                # Прокладываем мост к старому пути проверок
-                ln -sf \"\$REAL_SDK\" /root/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager
-                ln -sf \"\$REAL_SDK\" /github/home/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager
-                echo 'Символический мост успешно построен!'
-              else
-                echo 'cmdline-tools не найден, создаем базовый эмулятор успеха'
-                echo '#!/bin/bash' > /root/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager
-                echo 'exit 0' >> /root/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager
-                chmod +x /root/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager
-              fi
-              
-              echo 'Попытка 2: Повторный запуск финальной компиляции...';
-              buildozer android debug
-            }
-          "
+          -e BUILDOZER_WARN_ON_ROOT=0 \
+          ghcr.io/kivy/buildozer:latest android debug
 
     # Выгрузка APK артефактов из выходной папки проекта
     - name: Upload APK Artifact
@@ -71,4 +48,4 @@ jobs:
         name: MediaDownloader-APK-${{ env.date }}
         path: |
           bin/*.apk
-          .buildozer/**/*.apk
+          .docker_buildozer/**/*.apk
