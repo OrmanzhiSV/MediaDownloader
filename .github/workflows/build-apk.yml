@@ -18,38 +18,42 @@ jobs:
       run: |
         echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
 
-    # Сборка через Docker с динамическим monkey-patching внутренней логики Buildozer.
-    # Мы перехватываем вызовы команды '--list' на самом низком уровне Python,
-    # что полностью ликвидирует ошибку AttributeError: 'NoneType' object has no attribute 'split'.
-    - name: Run Buildozer via Manual Docker
+    # Прямая компиляция через движок python-for-android внутри контейнера.
+    # Метод полностью обходит устаревший код верификации путей утилиты Buildozer!
+    - name: Run Direct Compiler via Docker
       run: |
         docker run --rm \
           -u 0:0 \
           --entrypoint /bin/bash \
           -v "$(pwd)":/github/workspace \
           -w /github/workspace \
-          -e BUILDOZER_WARN_ON_ROOT=0 \
-          -e APP_ANDROID_ACCEPT_SDK_LICENSE="true" \
           ghcr.io/kivy/buildozer:latest -c "
-            # 1. Заранее создаем папки лицензий Google
+            # 1. Принудительно генерируем одобренные лицензии внутри контейнера
             mkdir -p /root/.buildozer/android/platform/android-sdk/licenses
             echo -e '\n893a5cd8e1b672669ab80f8db3ad48a32396d93a\n45f2d2d0b7b672669ab80f8db3ad48a32396d93a\n24333f1a50b6a8d67385315074ed226d875080be' > /root/.buildozer/android/platform/android-sdk/licenses/android-sdk-license
             echo -e '\n84831b9409646a918e30573bab4c9c91346d8abd\n504667f4c0de7af1a06de9f4b1727b84351f2910' > /root/.buildozer/android/platform/android-sdk/licenses/android-sdk-preview-license
-
-            # 2. Внедряем патч (Monkey Patch) прямо в исполняемый скрипт клиента Buildozer.
-            # Он перехватит выполнение функции cmd() и вернет фейковый список пакетов SDK, если запрашивается '--list'.
-            CLIENT_PY='/home/user/.venv/bin/buildozer'
-            sed -i '2i import buildozer.buildops as ops\nold_cmd = ops.cmd\ndef new_cmd(*args, **kwargs):\n    cmd_str = \" \".join(args[0]) if isinstance(args[0], list) else str(args[0])\n    if \"--list\" in cmd_str:\n        return (\"  build-tools;37.0.0 | 37.0.0 | Android SDK Build-Tools 37\", \"\")\n    return old_cmd(*args, **kwargs)\nops.cmd = new_cmd' \$CLIENT_PY
-
-            # 3. Запускаем компиляцию приложения. Проверка пакетов мгновенно станет зеленой!
-            buildozer android debug
+            
+            # Создаем целевую выходную папку bin на хосте
+            mkdir -p /github/workspace/bin
+            
+            # 2. Запускаем сборку APK напрямую, вызывая p4a по глобальному системному пути
+            p4a apk \
+              --private . \
+              --package=org.ormanzhisv.mediadownloader \
+              --name='Media Downloader' \
+              --version=1.0.0 \
+              --bootstrap=sdl2 \
+              --requirements=hostpython3,python3,kivy==2.3.0,requests,yt-dlp,urllib3,certifi,idna \
+              --arch=arm64-v8a \
+              --arch=armeabi-v7a \
+              --android-api 34 \
+              --output-dir=/github/workspace/bin \
+              --release
           "
 
-    # Выгрузка APK артефактов из выходной папки проекта хоста
+    # Выгрузка готовых APK артефактов
     - name: Upload APK Artifact
       uses: actions/upload-artifact@v4
       with:
         name: MediaDownloader-APK-${{ env.date }}
-        path: |
-          bin/*.apk
-          **/*.apk
+        path: bin/*.apk
