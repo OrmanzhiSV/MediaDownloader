@@ -18,8 +18,9 @@ jobs:
       run: |
         echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
 
-    # Финальная чистая сборка напрямую через компилятор python-for-android внутри Docker.
-    # Этот метод полностью изолирован от багов верификации путей утилиты Buildozer!
+    # Прямая сборка через компилятор python-for-android внутри Docker.
+    # Флаг --output-dir принудительно выгрузит готовый APK из Docker на хост GitHub.
+    # Больше никаких пустых артефактов!
     - name: Run Direct p4a Compiler via Docker
       run: |
         docker run --rm \
@@ -36,7 +37,10 @@ jobs:
             # Активируем внутреннее предустановленное виртуальное окружение p4a, зашитое в контейнере
             source /home/user/.venv/bin/activate || true
             
-            # 2. Компилируем APK напрямую через p4a, блокируя любые проверки папки tools/bin
+            # Создаем целевую выходную папку bin на хосте
+            mkdir -p /github/workspace/bin
+            
+            # 2. Компилируем APK напрямую через p4a
             p4a apk \
               --private . \
               --package=org.ormanzhisv.mediadownloader \
@@ -47,11 +51,8 @@ jobs:
               --arch=arm64-v8a \
               --arch=armeabi-v7a \
               --android-api 34 \
+              --output-dir=/github/workspace/bin \
               --release
-
-            # 3. Переносим готовый файл в смонтированный выходной каталог репозитория хоста
-            mkdir -p bin
-            find . -name '*.apk' -exec cp {} bin/ \; 2>/dev/null || true
           "
 
     # Выгрузка APK артефактов из выходной папки проекта хоста
@@ -59,7 +60,4 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: MediaDownloader-APK-${{ env.date }}
-        path: |
-          bin/*.apk
-          *.apk
-          **/*.apk
+        path: bin/*.apk
