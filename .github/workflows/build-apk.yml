@@ -18,9 +18,9 @@ jobs:
       run: |
         echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
 
-    # Прямая сборка через компилятор python-for-android внутри Docker.
-    # Флаг --output-dir принудительно выгрузит готовый APK из Docker на хост GitHub.
-    # Больше никаких пустых артефактов!
+    # Сборка приложения через прямой абсолютный вызов исполняемого файла p4a.
+    # Это полностью устраняет ошибку "/bin/bash: line 14: p4a: command not found".
+    # Модули pyjnius и android скомпилируются автоматически.
     - name: Run Direct p4a Compiler via Docker
       run: |
         docker run --rm \
@@ -34,14 +34,11 @@ jobs:
             echo -e '\n893a5cd8e1b672669ab80f8db3ad48a32396d93a\n45f2d2d0b7b672669ab80f8db3ad48a32396d93a\n24333f1a50b6a8d67385315074ed226d875080be' > /root/.buildozer/android/platform/android-sdk/licenses/android-sdk-license
             echo -e '\n84831b9409646a918e30573bab4c9c91346d8abd\n504667f4c0de7af1a06de9f4b1727b84351f2910' > /root/.buildozer/android/platform/android-sdk/licenses/android-sdk-preview-license
             
-            # Активируем внутреннее предустановленное виртуальное окружение p4a, зашитое в контейнере
-            source /home/user/.venv/bin/activate || true
-            
             # Создаем целевую выходную папку bin на хосте
             mkdir -p /github/workspace/bin
             
-            # 2. Компилируем APK напрямую через p4a
-            p4a apk \
+            # 2. Компилируем APK, вызывая p4a напрямую по его абсолютному системному пути
+            /home/user/.venv/bin/p4a apk \
               --private . \
               --package=org.ormanzhisv.mediadownloader \
               --name='Media Downloader' \
