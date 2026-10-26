@@ -21,7 +21,6 @@ jobs:
     # Прямая сборка через компилятор python-for-android внутри Docker.
     # Мы вызываем p4a через его родной исполняемый путь виртуального окружения контейнера!
     # Метод полностью обходит все устаревшие проверки путей утилиты Buildozer.
-     bondage:
     - name: Run Direct Compiler via Docker
       run: |
         docker run --rm \
@@ -39,7 +38,6 @@ jobs:
             mkdir -p /github/workspace/bin
             
             # 2. Компилируем APK напрямую, вызывая p4a из встроенного окружения Kivy контейнера.
-            # Знак доллара экранирован обратным слэшем, чтобы не ломать YAML разметку!
             /home/user/.venv/bin/p4a apk \
               --private . \
               --package=org.ormanzhisv.mediadownloader \
