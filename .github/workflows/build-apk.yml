@@ -1,55 +1,84 @@
-name: Prepare SDK inside container
-  run: |
-    docker run --rm -u 0:0 \
-      -v "$(pwd)":/github/workspace -w /github/workspace \
-      -e BUILDOZER_WARN_ON_ROOT=0 \
-      --entrypoint /bin/bash \
-      ghcr.io/kivy/buildozer:latest -s <<'EOF'
-        set -euo pipefail
-        SDK=/root/.buildozer/android/platform/android-sdk
-        mkdir -p "$SDK/licenses" "$SDK/tools/bin"
-        printf '%s\n' \
-          '893a5cd8e1b672669ab80f8db3ad48a32396d93a' \
-          '24333f1a50b6a8d67385315074ed226d875080be' \
-          > "$SDK/licenses/android-sdk-license"
+name: Build Mobile App
 
-        REAL="$(find /root/.buildozer /github/home/.buildozer -type f -name sdkmanager 2>/dev/null | head -n1 || true)"
-        if [ -z "$REAL" ]; then
-          curl -sSLo /tmp/c.zip https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
-          mkdir -p "$SDK/cmdline-tools"
-          unzip -q /tmp/c.zip -d "$SDK/cmdline-tools"
-          mv "$SDK/cmdline-tools/cmdline-tools" "$SDK/cmdline-tools/latest"
-          REAL="$SDK/cmdline-tools/latest/bin/sdkmanager"
-        fi
-        ln -sf "$REAL" "$SDK/tools/bin/sdkmanager"
-        yes | "$REAL" --licenses >/dev/null 2>&1 || true
+on:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
 
-        python - <<'PY'
-        try:
-            import buildozer.targets.android as a
-            _o = a.TargetAndroid._android_list_build_tools_versions
-            a.TargetAndroid._android_list_build_tools_versions = lambda self: (
-                _o(self) if False else ['34.0.0']
-            )
-        except Exception:
-            pass
-        PY
-      EOF
+jobs:
+  build:
+    runs-on: ubuntu-latest
 
-name: Build APK
-  run: |
-    docker run --rm -u 0:0 \
-      -v "$(pwd)":/github/workspace -w /github/workspace \
-      -e BUILDOZER_WARN_ON_ROOT=0 \
-      ghcr.io/kivy/buildozer:latest buildozer -v android debug
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-name: Fix ownership
-  if: always()
-  run: sudo chown -R "$(id -u):$(id -g)" .buildozer bin 2>/dev/null || true
+      - name: Get Date
+        id: get-date
+        run: echo "date=$(date +'%Y-%m-%d')" >> "$GITHUB_ENV"
 
-name: Upload APK
-  uses: actions/upload-artifact@v4
-  with:
-    name: MediaDownloader-APK-${{ env.date }}
-    path: bin/*.apk
-    if-no-files-found: error
+      - name: Prepare SDK inside container
+        timeout-minutes: 20
+        run: |
+          docker run --rm -u 0:0 \
+            -v "$(pwd)":/github/workspace \
+            -w /github/workspace \
+            -e BUILDOZER_WARN_ON_ROOT=0 \
+            --entrypoint /bin/bash \
+            ghcr.io/kivy/buildozer:latest -s <<'CONTAINER_SCRIPT'
+          set -euo pipefail
+          SDK=/root/.buildozer/android/platform/android-sdk
+          mkdir -p "$SDK/licenses" "$SDK/tools/bin"
+
+          printf '%s\n' \
+            '893a5cd8e1b672669ab80f8db3ad48a32396d93a' \
+            '24333f1a50b6a8d67385315074ed226d875080be' \
+            > "$SDK/licenses/android-sdk-license"
+
+          REAL="$(find /root/.buildozer /github/home/.buildozer -type f -name sdkmanager 2>/dev/null | head -n1 || true)"
+          if [ -z "$REAL" ]; then
+            echo "sdkmanager не найден — скачиваем cmdline-tools..."
+            curl -sSLo /tmp/c.zip https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+            mkdir -p "$SDK/cmdline-tools"
+            unzip -q /tmp/c.zip -d "$SDK/cmdline-tools"
+            mv "$SDK/cmdline-tools/cmdline-tools" "$SDK/cmdline-tools/latest"
+            REAL="$SDK/cmdline-tools/latest/bin/sdkmanager"
+          fi
+          ln -sf "$REAL" "$SDK/tools/bin/sdkmanager"
+          yes | "$REAL" --licenses >/dev/null 2>&1 || true
+
+          python - <<'PY'
+          try:
+              import buildozer.targets.android as a
+              _o = a.TargetAndroid._android_list_build_tools_versions
+              def _safe(self):
+                  try:
+                      return _o(self)
+                  except Exception:
+                      return ['34.0.0']
+              a.TargetAndroid._android_list_build_tools_versions = _safe
+          except Exception:
+              pass
+          PY
+          CONTAINER_SCRIPT
+
+      - name: Build APK
+        timeout-minutes: 45
+        run: |
+          docker run --rm -u 0:0 \
+            -v "$(pwd)":/github/workspace \
+            -w /github/workspace \
+            -e BUILDOZER_WARN_ON_ROOT=0 \
+            ghcr.io/kivy/buildozer:latest buildozer -v android debug
+
+      - name: Fix ownership
+        if: always()
+        run: sudo chown -R "$(id -u):$(id -g)" .buildozer bin 2>/dev/null || true
+
+      - name: Upload APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: MediaDownloader-APK-${{ env.date }}
+          path: bin/*.apk
+          if-no-files-found: error
