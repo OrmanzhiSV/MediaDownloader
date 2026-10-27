@@ -1,4 +1,4 @@
-- name: Prepare SDK inside container
+name: Prepare SDK inside container
   timeout-minutes: 20
   run: |
     docker run --rm -u 0:0 \
@@ -37,7 +37,7 @@
         PY
       EOF
 
-- name: Build APK
+name: Build APK
   timeout-minutes: 45
   run: |
     docker run --rm -u 0:0 \
@@ -45,7 +45,7 @@
       -e BUILDOZER_WARN_ON_ROOT=0 \
       ghcr.io/kivy/buildozer:latest buildozer -v android debug
 
-- name: Fix ownership
+name: Fix ownership
   if: always()
   run: sudo chown -R "$(id -u):$(id -g)" .buildozer bin 2>/dev/null || true
 
