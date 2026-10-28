@@ -32,12 +32,12 @@ jobs:
           SDK=/root/.buildozer/android/platform/android-sdk
           mkdir -p "$SDK/licenses" "$SDK/tools/bin"
 
-          # 1. Ищем реальный sdkmanager в известных путях
+          # 1. Найти реальный sdkmanager
           REAL="$(find /root/.buildozer /github/home/.buildozer -type f -name sdkmanager 2>/dev/null | head -n1 || true)"
 
-          # 2. Если не найден — скачиваем cmdline-tools с сайта Google
+          # 2. Если не найден — скачать cmdline-tools
           if [ -z "$REAL" ]; then
-            echo "sdkmanager не найден — скачиваем cmdline-tools..."
+            echo "sdkmanager не найден, скачиваем cmdline-tools..."
             curl -sSLo /tmp/cmdline.zip \
               https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
             mkdir -p "$SDK/cmdline-tools"
@@ -48,45 +48,43 @@ jobs:
 
           echo "Используем sdkmanager: $REAL"
 
-          # 3. Создаём симлинк на старый путь, который ждёт Buildozer
+          # 3. Создать символическую ссылку на старый путь, ожидаемый Buildozer
           ln -sf "$REAL" "$SDK/tools/bin/sdkmanager"
           mkdir -p /github/home/.buildozer/android/platform/android-sdk/tools/bin
           ln -sf "$REAL" /github/home/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager
 
-          # 4. Активно принимаем ВСЕ лицензии (главное исправление текущей ошибки)
-          yes | "$REAL" --licenses >/dev/null 2>&1 || true
+          # 4. Ключевой момент: принудительно принять ВСЕ лицензии (включая новую лицензию build-tools 37)
+          yes | "$REAL" --sdk_root="$SDK" --licenses >/dev/null 2>&1 || true
 
-          # 5. Явно устанавливаем platform-tools и build-tools
-          #    (37.0.0 — то, что требовалось в логах; если хотите стабильнее — 34.0.0)
-          yes | "$REAL" --sdk_root="$SDK" "platform-tools" "build-tools;37.0.0" >/dev/null 2>&1 || \
-          yes | "$REAL" --sdk_root="$SDK" "platform-tools" "build-tools;34.0.0" >/dev/null 2>&1 || true
+          # 5. Явно установить platform-tools и build-tools;37.0.0
+          yes | "$REAL" --sdk_root="$SDK" "platform-tools" "build-tools;37.0.0" || true
 
-          # 6. Проверяем, что build-tools реально установлены
+          # 6. Проверить, действительно ли build-tools установлен
           if [ ! -d "$SDK/build-tools" ] || [ -z "$(ls -A "$SDK/build-tools" 2>/dev/null)" ]; then
-            echo "::warning::build-tools не установились, пробуем ещё раз с явным логом"
-            yes | "$REAL" --sdk_root="$SDK" "build-tools;34.0.0" || true
+            echo "::error::build-tools не установлен, повторная попытка с явным выводом"
+            yes | "$REAL" --sdk_root="$SDK" "build-tools;37.0.0"
           fi
 
-          # 7. Патч Buildozer для Python 3.14 (защита от AttributeError NoneType.split)
+          echo "Содержимое build-tools:"
+          ls -la "$SDK/build-tools"
+
+          # 7. Патч для Python 3.14 (предотвращение AttributeError)
           python - <<'PY'
           try:
               import buildozer.targets.android as a
               _orig = a.TargetAndroid._android_list_build_tools_versions
               def _safe(self):
                   try:
-                      result = _orig(self)
-                      if not result:
-                          return ['34.0.0']
-                      return result
+                      r = _orig(self)
+                      return r if r else ['37.0.0']
                   except Exception:
-                      return ['34.0.0']
+                      return ['37.0.0']
               a.TargetAndroid._android_list_build_tools_versions = _safe
           except Exception as e:
               print(f"Patch skip: {e}")
           PY
 
-          echo "Подготовка SDK завершена. build-tools:"
-          ls -la "$SDK/build-tools" 2>/dev/null || echo "build-tools отсутствует"
+          echo "Подготовка SDK завершена."
           CONTAINER_SCRIPT
 
       - name: Build APK
@@ -110,3 +108,4 @@ jobs:
           name: MediaDownloader-APK-${{ env.date }}
           path: bin/*.apk
           if-no-files-found: error
+          
