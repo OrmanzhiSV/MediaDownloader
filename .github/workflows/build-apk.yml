@@ -29,7 +29,11 @@ jobs:
             ghcr.io/kivy/buildozer:latest -s <<'CONTAINER_SCRIPT'
           set -euo pipefail
 
-          SDK=/root/.buildozer/android/platform/android-sdk
+          # Ключевой момент: используем ANDROID_HOME для определения пути SDK
+          export ANDROID_HOME=/root/.buildozer/android/platform/android-sdk
+          export ANDROID_SDK_ROOT=$ANDROID_HOME
+          SDK=$ANDROID_HOME
+
           mkdir -p "$SDK/licenses" "$SDK/tools/bin"
 
           REAL="$(find /root/.buildozer /github/home/.buildozer -type f -name sdkmanager 2>/dev/null | head -n1 || true)"
@@ -46,19 +50,28 @@ jobs:
 
           echo "Используем sdkmanager: $REAL"
 
+          # Создаём символические ссылки
           ln -sf "$REAL" "$SDK/tools/bin/sdkmanager"
           mkdir -p /github/home/.buildozer/android/platform/android-sdk/tools/bin
           ln -sf "$REAL" /github/home/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager
 
-          # КЛЮЧЕВОЕ: передаём "y" прямо в команду установки build-tools
-          # Это обходит проблему, когда --licenses не срабатывает внутри Docker
-          echo "Устанавливаем build-tools;34.0.0 с принудительным подтверждением..."
-          printf 'y\ny\ny\ny\ny\n' | "$REAL" --sdk_root="$SDK" "platform-tools" "build-tools;34.0.0" 2>&1 || true
+          # КЛЮЧЕВОЙ ШАГ: создаём файлы лицензий в директории, которую действительно читает sdkmanager
+          # Используем проверенные хэши из сообщества
+          echo -e "\n8933bad161af4178b1185d1a37fbf41ea5269c55\nd56f5187479451eabf01fb78af6dfcb131b33910\n24333f1a50b6a8d67385315074ed226d875080be" > "$SDK/licenses/android-sdk-license"
+          echo -e "\n84831b9409646a918e30573bab4c9c91346d8abd" > "$SDK/licenses/android-sdk-preview-license"
 
-          # Проверка, повторная попытка если нужно
+          # Проверяем, что файлы созданы
+          echo "Содержимое licenses:"
+          ls -la "$SDK/licenses/"
+
+          # Устанавливаем build-tools;34.0.0 (стабильная версия, aidl существует)
+          echo "Устанавливаем build-tools;34.0.0..."
+          "$REAL" --sdk_root="$SDK" "platform-tools" "build-tools;34.0.0" 2>&1 || true
+
+          # Проверка, повторная попытка при необходимости
           if [ ! -d "$SDK/build-tools" ] || [ -z "$(ls -A "$SDK/build-tools" 2>/dev/null)" ]; then
-            echo "::warning::Первая попытка не удалась, пробуем через yes..."
-            yes | "$REAL" --sdk_root="$SDK" "build-tools;34.0.0" 2>&1 || true
+            echo "::warning::Первая попытка не удалась, повторяем..."
+            "$REAL" --sdk_root="$SDK" "build-tools;34.0.0" 2>&1 || true
           fi
 
           # Финальная проверка
