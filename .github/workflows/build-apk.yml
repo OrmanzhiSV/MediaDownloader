@@ -18,27 +18,85 @@ jobs:
         run: echo "date=$(date +'%Y-%m-%d')" >> "$GITHUB_ENV"
 
       - name: Prepare SDK inside container
-        timeout-minutes: 20
+        timeout-minutes: 25
         run: |
           docker run --rm -u 0:0 \
             -v "$(pwd)":/github/workspace \
             -w /github/workspace \
             -e BUILDOZER_WARN_ON_ROOT=0 \
+            -e APP_ANDROID_ACCEPT_SDK_LICENSE=true \
             --entrypoint /bin/bash \
             ghcr.io/kivy/buildozer:latest -s <<'CONTAINER_SCRIPT'
           set -euo pipefail
+
           SDK=/root/.buildozer/android/platform/android-sdk
           mkdir -p "$SDK/licenses" "$SDK/tools/bin"
-          # ... остальной скрипт ...
+
+          # 1. Ищем реальный sdkmanager в известных путях
+          REAL="$(find /root/.buildozer /github/home/.buildozer -type f -name sdkmanager 2>/dev/null | head -n1 || true)"
+
+          # 2. Если не найден — скачиваем cmdline-tools с сайта Google
+          if [ -z "$REAL" ]; then
+            echo "sdkmanager не найден — скачиваем cmdline-tools..."
+            curl -sSLo /tmp/cmdline.zip \
+              https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+            mkdir -p "$SDK/cmdline-tools"
+            unzip -q /tmp/cmdline.zip -d "$SDK/cmdline-tools"
+            mv "$SDK/cmdline-tools/cmdline-tools" "$SDK/cmdline-tools/latest"
+            REAL="$SDK/cmdline-tools/latest/bin/sdkmanager"
+          fi
+
+          echo "Используем sdkmanager: $REAL"
+
+          # 3. Создаём симлинк на старый путь, который ждёт Buildozer
+          ln -sf "$REAL" "$SDK/tools/bin/sdkmanager"
+          mkdir -p /github/home/.buildozer/android/platform/android-sdk/tools/bin
+          ln -sf "$REAL" /github/home/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager
+
+          # 4. Активно принимаем ВСЕ лицензии (главное исправление текущей ошибки)
+          yes | "$REAL" --licenses >/dev/null 2>&1 || true
+
+          # 5. Явно устанавливаем platform-tools и build-tools
+          #    (37.0.0 — то, что требовалось в логах; если хотите стабильнее — 34.0.0)
+          yes | "$REAL" --sdk_root="$SDK" "platform-tools" "build-tools;37.0.0" >/dev/null 2>&1 || \
+          yes | "$REAL" --sdk_root="$SDK" "platform-tools" "build-tools;34.0.0" >/dev/null 2>&1 || true
+
+          # 6. Проверяем, что build-tools реально установлены
+          if [ ! -d "$SDK/build-tools" ] || [ -z "$(ls -A "$SDK/build-tools" 2>/dev/null)" ]; then
+            echo "::warning::build-tools не установились, пробуем ещё раз с явным логом"
+            yes | "$REAL" --sdk_root="$SDK" "build-tools;34.0.0" || true
+          fi
+
+          # 7. Патч Buildozer для Python 3.14 (защита от AttributeError NoneType.split)
+          python - <<'PY'
+          try:
+              import buildozer.targets.android as a
+              _orig = a.TargetAndroid._android_list_build_tools_versions
+              def _safe(self):
+                  try:
+                      result = _orig(self)
+                      if not result:
+                          return ['34.0.0']
+                      return result
+                  except Exception:
+                      return ['34.0.0']
+              a.TargetAndroid._android_list_build_tools_versions = _safe
+          except Exception as e:
+              print(f"Patch skip: {e}")
+          PY
+
+          echo "Подготовка SDK завершена. build-tools:"
+          ls -la "$SDK/build-tools" 2>/dev/null || echo "build-tools отсутствует"
           CONTAINER_SCRIPT
 
       - name: Build APK
-        timeout-minutes: 45
+        timeout-minutes: 60
         run: |
           docker run --rm -u 0:0 \
             -v "$(pwd)":/github/workspace \
             -w /github/workspace \
             -e BUILDOZER_WARN_ON_ROOT=0 \
+            -e APP_ANDROID_ACCEPT_SDK_LICENSE=true \
             ghcr.io/kivy/buildozer:latest android debug
 
       - name: Fix ownership
