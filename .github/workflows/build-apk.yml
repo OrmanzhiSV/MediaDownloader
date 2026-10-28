@@ -1,10 +1,3 @@
-name: Build Mobile App
-
-on:
-  push:
-    branches: [ "main", "master" ]
-  workflow_dispatch:
-
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -29,37 +22,7 @@ jobs:
           set -euo pipefail
           SDK=/root/.buildozer/android/platform/android-sdk
           mkdir -p "$SDK/licenses" "$SDK/tools/bin"
-
-          printf '%s\n' \
-            '893a5cd8e1b672669ab80f8db3ad48a32396d93a' \
-            '24333f1a50b6a8d67385315074ed226d875080be' \
-            > "$SDK/licenses/android-sdk-license"
-
-          REAL="$(find /root/.buildozer /github/home/.buildozer -type f -name sdkmanager 2>/dev/null | head -n1 || true)"
-          if [ -z "$REAL" ]; then
-            echo "sdkmanager не найден — скачиваем cmdline-tools..."
-            curl -sSLo /tmp/c.zip https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
-            mkdir -p "$SDK/cmdline-tools"
-            unzip -q /tmp/c.zip -d "$SDK/cmdline-tools"
-            mv "$SDK/cmdline-tools/cmdline-tools" "$SDK/cmdline-tools/latest"
-            REAL="$SDK/cmdline-tools/latest/bin/sdkmanager"
-          fi
-          ln -sf "$REAL" "$SDK/tools/bin/sdkmanager"
-          yes | "$REAL" --licenses >/dev/null 2>&1 || true
-
-          python - <<'PY'
-          try:
-              import buildozer.targets.android as a
-              _o = a.TargetAndroid._android_list_build_tools_versions
-              def _safe(self):
-                  try:
-                      return _o(self)
-                  except Exception:
-                      return ['34.0.0']
-              a.TargetAndroid._android_list_build_tools_versions = _safe
-          except Exception:
-              pass
-          PY
+          # ... остальной скрипт ...
           CONTAINER_SCRIPT
 
       - name: Build APK
@@ -69,7 +32,7 @@ jobs:
             -v "$(pwd)":/github/workspace \
             -w /github/workspace \
             -e BUILDOZER_WARN_ON_ROOT=0 \
-            ghcr.io/kivy/buildozer:latest buildozer -v android debug
+            ghcr.io/kivy/buildozer:latest android debug
 
       - name: Fix ownership
         if: always()
