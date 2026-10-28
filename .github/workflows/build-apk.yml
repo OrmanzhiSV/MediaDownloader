@@ -17,19 +17,6 @@ jobs:
         id: get-date
         run: echo "date=$(date +'%Y-%m-%d')" >> "$GITHUB_ENV"
 
-      - name: Ensure buildozer.spec accepts SDK license
-        run: |
-          if [ ! -f buildozer.spec ]; then
-            echo "::error::buildozer.spec not found!"
-            exit 1
-          fi
-          # Ensure the license acceptance option exists
-          if ! grep -q "^android.accept_sdk_license" buildozer.spec; then
-            echo "android.accept_sdk_license = True" >> buildozer.spec
-          else
-            sed -i 's/^android.accept_sdk_license.*/android.accept_sdk_license = True/' buildozer.spec
-          fi
-
       - name: Prepare SDK inside container
         timeout-minutes: 30
         run: |
@@ -48,7 +35,7 @@ jobs:
           REAL="$(find /root/.buildozer /github/home/.buildozer -type f -name sdkmanager 2>/dev/null | head -n1 || true)"
 
           if [ -z "$REAL" ]; then
-            echo "sdkmanager not found, downloading cmdline-tools..."
+            echo "sdkmanager не найден, скачиваем cmdline-tools..."
             curl -sSLo /tmp/cmdline.zip \
               https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
             mkdir -p "$SDK/cmdline-tools"
@@ -57,28 +44,48 @@ jobs:
             REAL="$SDK/cmdline-tools/latest/bin/sdkmanager"
           fi
 
-          echo "Using sdkmanager: $REAL"
+          echo "Используем sdkmanager: $REAL"
+
           ln -sf "$REAL" "$SDK/tools/bin/sdkmanager"
           mkdir -p /github/home/.buildozer/android/platform/android-sdk/tools/bin
           ln -sf "$REAL" /github/home/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager
 
-          # Force install build-tools 34.0.0 (stable, aidl exists)
-          echo "Installing build-tools;34.0.0..."
-          echo y | "$REAL" --sdk_root="$SDK" "platform-tools" "build-tools;34.0.0" 2>&1 || true
+          # КЛЮЧЕВОЕ: передаём "y" прямо в команду установки build-tools
+          # Это обходит проблему, когда --licenses не срабатывает внутри Docker
+          echo "Устанавливаем build-tools;34.0.0 с принудительным подтверждением..."
+          printf 'y\ny\ny\ny\ny\n' | "$REAL" --sdk_root="$SDK" "platform-tools" "build-tools;34.0.0" 2>&1 || true
 
+          # Проверка, повторная попытка если нужно
           if [ ! -d "$SDK/build-tools" ] || [ -z "$(ls -A "$SDK/build-tools" 2>/dev/null)" ]; then
-            echo "::warning::Retrying build-tools;34.0.0 installation..."
-            echo y | "$REAL" --sdk_root="$SDK" "build-tools;34.0.0"
+            echo "::warning::Первая попытка не удалась, пробуем через yes..."
+            yes | "$REAL" --sdk_root="$SDK" "build-tools;34.0.0" 2>&1 || true
           fi
 
+          # Финальная проверка
           if [ ! -d "$SDK/build-tools" ] || [ -z "$(ls -A "$SDK/build-tools" 2>/dev/null)" ]; then
-            echo "::error::build-tools still missing!"
+            echo "::error::build-tools всё ещё отсутствует!"
             ls -la "$SDK"
             exit 1
           fi
 
-          echo "build-tools installed successfully:"
+          echo "build-tools успешно установлены:"
           ls -la "$SDK/build-tools"
+
+          # Патч для Python 3.14
+          python - <<'PY'
+          try:
+              import buildozer.targets.android as a
+              _orig = a.TargetAndroid._android_list_build_tools_versions
+              def _safe(self):
+                  try:
+                      r = _orig(self)
+                      return r if r else ['34.0.0']
+                  except Exception:
+                      return ['34.0.0']
+              a.TargetAndroid._android_list_build_tools_versions = _safe
+          except Exception as e:
+              print(f"Patch skip: {e}")
+          PY
           CONTAINER_SCRIPT
 
       - name: Build APK
