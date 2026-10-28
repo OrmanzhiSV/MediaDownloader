@@ -32,10 +32,8 @@ jobs:
           SDK=/root/.buildozer/android/platform/android-sdk
           mkdir -p "$SDK/licenses" "$SDK/tools/bin"
 
-          # 1. Найти реальный sdkmanager
           REAL="$(find /root/.buildozer /github/home/.buildozer -type f -name sdkmanager 2>/dev/null | head -n1 || true)"
 
-          # 2. Если не найден — скачать cmdline-tools
           if [ -z "$REAL" ]; then
             echo "sdkmanager не найден, скачиваем cmdline-tools..."
             curl -sSLo /tmp/cmdline.zip \
@@ -48,25 +46,24 @@ jobs:
 
           echo "Используем sdkmanager: $REAL"
 
-          # 3. Создать симлинки
           ln -sf "$REAL" "$SDK/tools/bin/sdkmanager"
           mkdir -p /github/home/.buildozer/android/platform/android-sdk/tools/bin
           ln -sf "$REAL" /github/home/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager
 
-          # 4. Принять ВСЕ лицензии (двойная страховка)
-          yes | "$REAL" --sdk_root="$SDK" --licenses >/dev/null 2>&1 || true
+          # Принять все лицензии (с резервным вариантом)
+          yes | "$REAL" --sdk_root="$SDK" --licenses 2>/dev/null || true
 
-          # 5. КЛЮЧЕВОЕ: явная установка build-tools с принудительным подтверждением y
-          echo "Устанавливаем build-tools;37.0.0..."
-          echo y | "$REAL" --sdk_root="$SDK" "platform-tools" "build-tools;37.0.0" || true
+          # Ключевое изменение: принудительная установка build-tools;34.0.0 (стабильная версия)
+          echo "Устанавливаем build-tools;34.0.0..."
+          yes | "$REAL" --sdk_root="$SDK" "platform-tools" "build-tools;34.0.0" 2>&1 || true
 
-          # 6. Проверка, если не установилось — откат на 34.0.0
+          # Проверка, если не установилось — повторная попытка
           if [ ! -d "$SDK/build-tools" ] || [ -z "$(ls -A "$SDK/build-tools" 2>/dev/null)" ]; then
-            echo "::warning::build-tools;37.0.0 не установился, пробуем build-tools;34.0.0..."
-            echo y | "$REAL" --sdk_root="$SDK" "build-tools;34.0.0" || true
+            echo "::warning::Первая попытка не удалась, повторяем установку build-tools;34.0.0..."
+            yes | "$REAL" --sdk_root="$SDK" "build-tools;34.0.0"
           fi
 
-          # 7. Финальная проверка
+          # Финальная проверка
           if [ ! -d "$SDK/build-tools" ] || [ -z "$(ls -A "$SDK/build-tools" 2>/dev/null)" ]; then
             echo "::error::build-tools всё ещё отсутствует! Содержимое SDK:"
             ls -la "$SDK"
@@ -76,7 +73,7 @@ jobs:
           echo "build-tools успешно установлены:"
           ls -la "$SDK/build-tools"
 
-          # 8. Патч для Python 3.14
+          # Патч для Python 3.14
           python - <<'PY'
           try:
               import buildozer.targets.android as a
