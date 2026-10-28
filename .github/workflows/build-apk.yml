@@ -18,7 +18,7 @@ jobs:
         run: echo "date=$(date +'%Y-%m-%d')" >> "$GITHUB_ENV"
 
       - name: Prepare SDK inside container
-        timeout-minutes: 25
+        timeout-minutes: 30
         run: |
           docker run --rm -u 0:0 \
             -v "$(pwd)":/github/workspace \
@@ -48,27 +48,35 @@ jobs:
 
           echo "Используем sdkmanager: $REAL"
 
-          # 3. Создать символическую ссылку на старый путь, ожидаемый Buildozer
+          # 3. Создать симлинки
           ln -sf "$REAL" "$SDK/tools/bin/sdkmanager"
           mkdir -p /github/home/.buildozer/android/platform/android-sdk/tools/bin
           ln -sf "$REAL" /github/home/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager
 
-          # 4. Ключевой момент: принудительно принять ВСЕ лицензии (включая новую лицензию build-tools 37)
+          # 4. Принять ВСЕ лицензии (двойная страховка)
           yes | "$REAL" --sdk_root="$SDK" --licenses >/dev/null 2>&1 || true
 
-          # 5. Явно установить platform-tools и build-tools;37.0.0
-          yes | "$REAL" --sdk_root="$SDK" "platform-tools" "build-tools;37.0.0" || true
+          # 5. КЛЮЧЕВОЕ: явная установка build-tools с принудительным подтверждением y
+          echo "Устанавливаем build-tools;37.0.0..."
+          echo y | "$REAL" --sdk_root="$SDK" "platform-tools" "build-tools;37.0.0" || true
 
-          # 6. Проверить, действительно ли build-tools установлен
+          # 6. Проверка, если не установилось — откат на 34.0.0
           if [ ! -d "$SDK/build-tools" ] || [ -z "$(ls -A "$SDK/build-tools" 2>/dev/null)" ]; then
-            echo "::error::build-tools не установлен, повторная попытка с явным выводом"
-            yes | "$REAL" --sdk_root="$SDK" "build-tools;37.0.0"
+            echo "::warning::build-tools;37.0.0 не установился, пробуем build-tools;34.0.0..."
+            echo y | "$REAL" --sdk_root="$SDK" "build-tools;34.0.0" || true
           fi
 
-          echo "Содержимое build-tools:"
+          # 7. Финальная проверка
+          if [ ! -d "$SDK/build-tools" ] || [ -z "$(ls -A "$SDK/build-tools" 2>/dev/null)" ]; then
+            echo "::error::build-tools всё ещё отсутствует! Содержимое SDK:"
+            ls -la "$SDK"
+            exit 1
+          fi
+
+          echo "build-tools успешно установлены:"
           ls -la "$SDK/build-tools"
 
-          # 7. Патч для Python 3.14 (предотвращение AttributeError)
+          # 8. Патч для Python 3.14
           python - <<'PY'
           try:
               import buildozer.targets.android as a
@@ -76,15 +84,13 @@ jobs:
               def _safe(self):
                   try:
                       r = _orig(self)
-                      return r if r else ['37.0.0']
+                      return r if r else ['34.0.0']
                   except Exception:
-                      return ['37.0.0']
+                      return ['34.0.0']
               a.TargetAndroid._android_list_build_tools_versions = _safe
           except Exception as e:
               print(f"Patch skip: {e}")
           PY
-
-          echo "Подготовка SDK завершена."
           CONTAINER_SCRIPT
 
       - name: Build APK
@@ -108,4 +114,3 @@ jobs:
           name: MediaDownloader-APK-${{ env.date }}
           path: bin/*.apk
           if-no-files-found: error
-          
