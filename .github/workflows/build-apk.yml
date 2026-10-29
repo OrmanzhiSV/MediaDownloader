@@ -27,9 +27,60 @@ jobs:
             --entrypoint /bin/bash \
             ghcr.io/kivy/buildozer:latest -s <<'CONTAINER_SCRIPT'
           set -euo pipefail
-          echo "скрипт внутри контейнера"
-          CONTAINER_SCRIPT
 
+          SDK=/root/.buildozer/android/platform/android-sdk
+          mkdir -p "$SDK/tools/bin"
+
+          # 1. Найти или скачать sdkmanager (на случай, если его нет)
+          REAL="$(find /root/.buildozer /github/home/.buildozer -type f -name sdkmanager 2>/dev/null | head -n1 || true)"
+          if [ -z "$REAL" ]; then
+            echo "sdkmanager не найден, скачиваем cmdline-tools..."
+            curl -sSLo /tmp/cmdline.zip \
+              https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+            mkdir -p "$SDK/cmdline-tools"
+            unzip -q /tmp/cmdline.zip -d "$SDK/cmdline-tools"
+            mv "$SDK/cmdline-tools/cmdline-tools" "$SDK/cmdline-tools/latest"
+            REAL="$SDK/cmdline-tools/latest/bin/sdkmanager"
+          fi
+          ln -sf "$REAL" "$SDK/tools/bin/sdkmanager"
+
+          # 2. Обход лицензии: вручную разместить aidl в build-tools
+          echo "Поиск aidl в системе..."
+          SYSTEM_AIDL="$(find / -name aidl -type f 2>/dev/null | head -n1)"
+          if [ -z "$SYSTEM_AIDL" ]; then
+            echo "aidl не найден, пробуем установить через apt..."
+            apt-get update -qq && apt-get install -y -qq aidl 2>/dev/null || true
+            SYSTEM_AIDL="$(command -v aidl || true)"
+          fi
+
+          if [ -n "$SYSTEM_AIDL" ]; then
+            echo "Найден aidl: $SYSTEM_AIDL"
+            mkdir -p "$SDK/build-tools/34.0.0"
+            cp "$SYSTEM_AIDL" "$SDK/build-tools/34.0.0/aidl"
+            chmod +x "$SDK/build-tools/34.0.0/aidl"
+            echo "aidl размещён: $SDK/build-tools/34.0.0/aidl"
+          else
+            echo "::error::Не удалось получить aidl"
+            exit 1
+          fi
+
+          # 3. Патч для Python 3.14
+          python - <<'PY'
+          try:
+              import buildozer.targets.android as a
+              _orig = a.TargetAndroid._android_list_build_tools_versions
+              def _safe(self):
+                  try:
+                      r = _orig(self)
+                      return r if r else ['34.0.0']
+                  except Exception:
+                      return ['34.0.0']
+              a.TargetAndroid._android_list_build_tools_versions = _safe
+          except Exception:
+              pass
+          PY
+          CONTAINER_SCRIPT
+          
       - name: Build APK
         timeout-minutes: 60
         run: |
