@@ -18,16 +18,15 @@ jobs:
       run: |
         echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
 
-    # Глобальное кэширование предобученного SDK хоста
     - name: Cache Buildozer Global Tooling
       uses: actions/cache@v4
       with:
         path: .buildozer_host
-        key: ${{ runner.os }}-buildozer-v12-${{ hashFiles('buildozer.spec') }}
+        key: ${{ runner.os }}-buildozer-v13-${{ hashFiles('buildozer.spec') }}
         restore-keys: |
-          ${{ runner.os }}-buildozer-v12-
+          ${{ runner.os }}-buildozer-v13-
 
-    # Шаг 1. Надежная предустановка Android SDK на хосте раннера (ОПЕЧАТКА ИСПРАВЛЕНА)
+    # Шаг 1: Предварительная установка Android SDK на хосте (логика не изменена)
     - name: Pre-install Official Android SDK on Host
       run: |
         if [ ! -d ".buildozer_host/android/platform/android-sdk/build-tools/34.0.0" ]; then
@@ -36,51 +35,51 @@ jobs:
           mkdir -p .buildozer_host/android/platform/android-sdk/cmdline-tools
           cd .buildozer_host/android/platform/android-sdk/cmdline-tools
           
-          # АДРЕС ИСПРАВЛЕН: Скачиваем легитимные инструменты командной строки с серверов Google
           curl --fail --location --retry 3 --retry-delay 2 --retry-connrefused \
                --show-error \
                -o cmdline-tools.zip \
                https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
           
-          # Проверка целостности zip перед распаковкой
           unzip -t cmdline-tools.zip > /dev/null 2>&1 || {
-            echo "::error::Скачанный zip повреждён. Удаляем и выходим."
+            echo "::error::Скачанный zip повреждён."
             rm -f cmdline-tools.zip
             exit 1
           }
           
           unzip -q cmdline-tools.zip && rm cmdline-tools.zip
           
-          # Проверка структуры после распаковки
           if [ ! -d "cmdline-tools" ]; then
             echo "::error::После распаковки не найдена папка cmdline-tools"
-            ls -la
             exit 1
           fi
           
           mv cmdline-tools latest
           
-          # Нативно принимаем все лицензии на стабильном хосте Ubuntu (без Broken Pipe)
           echo "y" | latest/bin/sdkmanager --sdk_root=../ "build-tools;34.0.0" "platform-tools" "platforms;android-34"
           
           cd ../../../../..
         else
-          echo "Валидный Android SDK с предустановленным AIDL успешно восстановлен из кэша."
+          echo "Валидный Android SDK восстановлен из кэша."
         fi
 
-    # Шаг 2. Сборка на базе ПОЛНОВЕСНОГО контейнера Python 3.11 (Bookworm)
-    - name: Run Buildozer inside Pure Python 3.11 Container
+    # Шаг 2: Сборка в контейнере Python 3.11, принудительное использование рецептов p4a, а не PyPI
+    - name: Run Buildozer inside Python 3.11 Container
       run: |
         chmod -R 777 .buildozer_host
         
-        # Инжектируем точный путь к SDK в spec-файл и отключаем сторонний автопоиск путей
+        # Внедрение пути SDK и отключение автоматического обновления
         sed -i 's|^#\s*android.sdk_path\s*=.*|android.sdk_path = /root/.buildozer/android/platform/android-sdk|g' buildozer.spec
         sed -i 's|^android.sdk_path\s*=.*|android.sdk_path = /root/.buildozer/android/platform/android-sdk|g' buildozer.spec
         sed -i 's|^#\s*android.skip_update\s*=.*|android.skip_update = True|g' buildozer.spec
         sed -i 's|^android.skip_update\s*=.*|android.skip_update = True|g' buildozer.spec
         
-        # УПРОЩЕННЫЙ НАБОР ТРЕБОВАНИЙ: Позволяем p4a использовать нативную версию Python 3.11 образа по умолчанию
-        sed -i 's|^requirements\s*=.*|requirements = python3,kivy==2.3.0,yt-dlp,requests|g' buildozer.spec
+        # Ключевое изменение: используем URL GitHub для kivy, чтобы принудительно загрузить исходный код и обойти поиск в PyPI
+        # pyjnius НЕ указываем — p4a использует встроенный рецепт (версия 1.7.0)
+        sed -i 's|^requirements\s*=.*|requirements = python3,kivy==https://github.com/kivy/kivy/archive/refs/tags/2.3.1.zip,yt-dlp,requests|g' buildozer.spec
+        
+        # Используем ветку develop p4a для исправления совместимости с Python 3.11
+        sed -i 's|^#\s*p4a.branch\s*=.*|p4a.branch = develop|g' buildozer.spec
+        sed -i 's|^p4a.branch\s*=.*|p4a.branch = develop|g' buildozer.spec
 
         docker run --rm \
           -v "$(pwd)":/github/workspace \
@@ -90,38 +89,35 @@ jobs:
           -e APP_ANDROID_ACCEPT_SDK_LICENSE="true" \
           --entrypoint /bin/bash \
           python:3.11-bookworm -c "
-            echo '=== ШАГ А. УСТАНОВКА СИСТЕМНЫХ ЗАВИСИМОСТЕЙ (APT-GET ГАРАНТИРОВАН) ==='
+            echo '=== ШАГ А: УСТАНОВКА СИСТЕМНЫХ ЗАВИСИМОСТЕЙ ==='
             apt-get update && apt-get install -y --no-install-recommends \
               openjdk-17-jdk-headless git zip unzip xclip curl wget libffi-dev \
               libssl-dev autoconf automake libtool pkg-config zlib1g-dev \
               build-essential ccache libncursesw5-dev libncurses-dev
             
-            echo '=== ШАГ Б. РАЗВЕРТЫВАНИЕ СТАБИЛЬНОГО ЭТАЛОННОГО CYTHON ==='
-            # Ставим Cython==0.29.33 для 100% совместимости с внутренними рецептами Kivy/p4a
-            pip install --no-cache-dir --upgrade pip setuptools wheel Cython==0.29.33 buildozer
+            echo '=== ШАГ Б: УСТАНОВКА ИНСТРУМЕНТОВ СБОРКИ ==='
+            # Cython 3.0.x совместим с Kivy 2.3.x
+            pip install --no-cache-dir --upgrade pip setuptools wheel Cython==3.0.11 buildozer
             
-            echo '=== ШАГ В. НАСТРОЙКА ПУТЕЙ И СИМЛИНКОВ ДЛЯ СТАБИЛЬНОГО SDK ==='
+            echo '=== ШАГ В: НАСТРОЙКА ОКРУЖЕНИЯ ==='
             export ANDROID_HOME=/root/.buildozer/android/platform/android-sdk
             export ANDROID_SDK_ROOT=/root/.buildozer/android/platform/android-sdk
             export PATH=\$ANDROID_HOME/cmdline-tools/latest/bin:\$ANDROID_HOME/platform-tools:\$PATH
             
+            # Очистка старых кэшей p4a, чтобы гарантировать использование новых рецептов
+            rm -rf /root/.buildozer/android/platform/python-for-android
+            
             mkdir -p /root/.buildozer/android/platform/android-sdk/tools/bin
             ln -sf /root/.buildozer/android/platform/android-sdk/cmdline-tools/latest/bin/sdkmanager /root/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager
             
-            # Проверки существования критических бинарников на диске
-            test -f /root/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager && echo 'tools/bin/sdkmanager: FOUND' || echo 'tools/bin/sdkmanager: NOT FOUND'
-            test -f /root/.buildozer/android/platform/android-sdk/build-tools/34.0.0/aidl && echo 'build-tools/34.0.0/aidl (REAL GOOGLE AIDL): FOUND' || echo 'build-tools/aidl: NOT FOUND'
+            echo '=== ПРОВЕРКА КОНФИГУРАЦИИ ==='
+            grep -E 'android.sdk_path|requirements|p4a.branch' buildozer.spec
             echo '====================================================================='
             
-            echo 'Проверка модифицированных требований в buildozer.spec:'
-            grep -E 'android.sdk_path|requirements' buildozer.spec
-            echo '====================================================================='
-            
-            # Запуск компиляции в детальном (verbose) режиме
+            echo '=== ШАГ Г: ЗАПУСК СБОРКИ ==='
             buildozer -v android debug 2>&1
           "
 
-    # Шаг 3. Сохранение готового APK
     - name: Upload APK Artifact
       uses: actions/upload-artifact@v4
       with:
