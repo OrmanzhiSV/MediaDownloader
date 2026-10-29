@@ -23,11 +23,11 @@ jobs:
       uses: actions/cache@v4
       with:
         path: .buildozer_host
-        key: ${{ runner.os }}-buildozer-v7-${{ hashFiles('buildozer.spec') }}
+        key: ${{ runner.os }}-buildozer-v8-${{ hashFiles('buildozer.spec') }}
         restore-keys: |
-          ${{ runner.os }}-buildozer-v7-
+          ${{ runner.os }}-buildozer-v8-
 
-    # Шаг 1. Чистая предустановка Android SDK на хост-машине Ubuntu
+    # Шаг 1. Надежная предустановка Android SDK на хост-машине Ubuntu через wget
     - name: Pre-install Official Android SDK on Host
       run: |
         if [ ! -d ".buildozer_host/android/platform/android-sdk/build-tools/34.0.0" ]; then
@@ -37,14 +37,26 @@ jobs:
           mkdir -p .buildozer_host/android/platform/android-sdk/cmdline-tools
           cd .buildozer_host/android/platform/android-sdk/cmdline-tools
           
-          # Скачиваем легитимные инструменты командной строки с серверов Google
-          curl -sL https://google.com -o cmdline-tools.zip
-          unzip -q cmdline-tools.zip && rm cmdline-tools.zip
+          # Используем надежный wget с повтором попыток вместо curl
+          wget --quiet --tries=5 --connect-timeout=20 https://google.com -o wget.log || {
+            echo "Ошибка: Не удалось подключиться к серверам Google"
+            cat wget.log
+            exit 1
+          }
+          
+          # Проверяем, что файл физически существует и имеет размер больше 10 МБ
+          if [ ! -f "commandlinetools-linux-11076708_latest.zip" ] || [ $(stat -c%s "commandlinetools-linux-11076708_latest.zip") -lt 10000000 ]; then
+            echo "Критическая ошибка: Архив cmdline-tools скачался поврежденным или пустым."
+            exit 1
+          fi
+          
+          # Распаковываем легитимные инструменты командной строки
+          unzip -q commandlinetools-linux-11076708_latest.zip && rm commandlinetools-linux-11076708_latest.zip
           
           # Переименовываем распакованную корневую папку под стандарт 'latest', требуемый sdkmanager
           mv cmdline-tools latest
           
-          # Нативно принимаем все лицензии на стабильном хосте Ubuntu (без Broken Pipe)
+          # Нативно принимаем все лицензии на стабильном хосте Ubuntu
           echo "y" | latest/bin/sdkmanager --sdk_root=../ "build-tools;34.0.0" "platform-tools" "platforms;android-34"
           
           cd ../../../../..
@@ -64,9 +76,8 @@ jobs:
         sed -i 's|^#\s*android.skip_update\s*=.*|android.skip_update = True|g' buildozer.spec
         sed -i 's|^android.skip_update\s*=.*|android.skip_update = True|g' buildozer.spec
         
-        # 2. ИСПРАВЛЕННЫЙ ТАРГЕТ Python (Решение проблемы с pip / kivy):
+        # 2. ИСПРАВЛЕННЫЙ ТАРГЕТ Python:
         # Передаем связанные версии hostpython3 и python3 через ==, принуждая p4a скомпилировать Python 3.11.9 локально.
-        # Удаляем принудительные директивы python_version, чтобы избежать ошибки несоответствия контекстов.
         sed -i 's|^requirements\s*=.*|requirements = hostpython3==3.11.9,python3==3.11.9,kivy==2.3.0,yt-dlp,requests|g' buildozer.spec
 
         docker run --rm \
