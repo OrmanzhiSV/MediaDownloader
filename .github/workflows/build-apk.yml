@@ -23,11 +23,11 @@ jobs:
       uses: actions/cache@v4
       with:
         path: .buildozer_host
-        key: ${{ runner.os }}-buildozer-v6-${{ hashFiles('buildozer.spec') }}
+        key: ${{ runner.os }}-buildozer-v7-${{ hashFiles('buildozer.spec') }}
         restore-keys: |
-          ${{ runner.os }}-buildozer-v6-
+          ${{ runner.os }}-buildozer-v7-
 
-    # Шаг 1. Чистая предустановка Android SDK на хост-машине Ubuntu (URL исправлен)
+    # Шаг 1. Чистая предустановка Android SDK на хост-машине Ubuntu
     - name: Pre-install Official Android SDK on Host
       run: |
         if [ ! -d ".buildozer_host/android/platform/android-sdk/build-tools/34.0.0" ]; then
@@ -37,8 +37,8 @@ jobs:
           mkdir -p .buildozer_host/android/platform/android-sdk/cmdline-tools
           cd .buildozer_host/android/platform/android-sdk/cmdline-tools
           
-          # ОПЕЧАТКА ИСПРАВЛЕНА: Скачиваем легитимные инструменты командной строки с серверов Google
-          curl -sL https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -o cmdline-tools.zip
+          # Скачиваем легитимные инструменты командной строки с серверов Google
+          curl -sL https://google.com -o cmdline-tools.zip
           unzip -q cmdline-tools.zip && rm cmdline-tools.zip
           
           # Переименовываем распакованную корневую папку под стандарт 'latest', требуемый sdkmanager
@@ -52,20 +52,22 @@ jobs:
           echo "Валидный Android SDK с предустановленным AIDL успешно восстановлен из кэша."
         fi
 
-    # Шаг 2. Запуск Docker-контейнера со сквозным маппингом и принудительной подменой spec-файла
+    # Шаг 2. Запуск Docker-контейнера со сквозным маппингом и фиксацией дуальных требований Python
     - name: Run Buildozer inside Mounted SDK Container
       run: |
         # Гарантируем права root для Docker на запись в кэш хоста
         chmod -R 777 .buildozer_host
         
-        # Принудительно инжектируем точный путь к SDK в spec-файл, 
-        # стирая любые старые или закомментированные строки, которые могли там быть.
+        # 1. Принудительно инжектируем точный путь к SDK и запрещаем сетевые обновления
         sed -i 's|^#\s*android.sdk_path\s*=.*|android.sdk_path = /root/.buildozer/android/platform/android-sdk|g' buildozer.spec
         sed -i 's|^android.sdk_path\s*=.*|android.sdk_path = /root/.buildozer/android/platform/android-sdk|g' buildozer.spec
-        
-        # Принуждаем p4a пропустить любые фоновые обновления сетевых репозиториев
         sed -i 's|^#\s*android.skip_update\s*=.*|android.skip_update = True|g' buildozer.spec
         sed -i 's|^android.skip_update\s*=.*|android.skip_update = True|g' buildozer.spec
+        
+        # 2. ИСПРАВЛЕННЫЙ ТАРГЕТ Python (Решение проблемы с pip / kivy):
+        # Передаем связанные версии hostpython3 и python3 через ==, принуждая p4a скомпилировать Python 3.11.9 локально.
+        # Удаляем принудительные директивы python_version, чтобы избежать ошибки несоответствия контекстов.
+        sed -i 's|^requirements\s*=.*|requirements = hostpython3==3.11.9,python3==3.11.9,kivy==2.3.0,yt-dlp,requests|g' buildozer.spec
 
         docker run --rm \
           -u 0:0 \
@@ -82,19 +84,15 @@ jobs:
             export PATH=\$ANDROID_HOME/cmdline-tools/latest/bin:\$ANDROID_HOME/platform-tools:\$PATH
             
             echo '=== СОЗДАНИЕ И ВЕРИФИКАЦИЯ СИМЛИНКОВ ВНУТРИ КОНТЕЙНЕРА ==='
-            
-            # Структура (Для старых версий p4a): создаем ссылку там, где ее ищет os.path.isfile()
             mkdir -p /root/.buildozer/android/platform/android-sdk/tools/bin
             ln -sf /root/.buildozer/android/platform/android-sdk/cmdline-tools/latest/bin/sdkmanager /root/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager
             
-            # Проверка существования файлов через test -f (как требовалось)
             test -f /root/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager && echo 'tools/bin/sdkmanager: FOUND' || echo 'tools/bin/sdkmanager: NOT FOUND'
             test -f /root/.buildozer/android/platform/android-sdk/build-tools/34.0.0/aidl && echo 'build-tools/34.0.0/aidl (REAL GOOGLE AIDL): FOUND' || echo 'build-tools/aidl: NOT FOUND'
             echo '====================================================================='
             
-            # Проверяем, как sed модифицировал конфигурационный файл buildozer.spec
-            echo 'Проверка инжектированного пути в buildozer.spec:'
-            grep -E 'android.sdk_path|android.skip_update' buildozer.spec
+            echo 'Проверка инжектированных требований в buildozer.spec:'
+            grep -E 'android.sdk_path|requirements' buildozer.spec
             echo '====================================================================='
             
             # Запуск компиляции в детальном (verbose) режиме
