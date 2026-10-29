@@ -10,82 +10,95 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+    - name: Checkout code
+      uses: actions/checkout@v4
 
-      - name: Get Date
-        id: get-date
-        run: echo "date=$(date +'%Y-%m-%d')" >> "$GITHUB_ENV"
+    - name: Get Date
+      id: get-date
+      run: |
+        echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
 
-      - name: Prepare SDK inside container
-        timeout-minutes: 30
-        run: |
-          docker run --rm -u 0:0 \
-            -v "$(pwd)":/github/workspace \
-            -w /github/workspace \
-            -e BUILDOZER_WARN_ON_ROOT=0 \
-            --entrypoint /bin/bash \
-            ghcr.io/kivy/buildozer:latest -s <<'CONTAINER_SCRIPT'
-          set -euo pipefail
+    - name: Cache Buildozer Global Tooling
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.buildozer
+          .buildozer
+        key: ${{ runner.os }}-buildozer-${{ hashFiles('buildozer.spec') }}
+        restore-keys: |
+          ${{ runner.os }}-buildozer-
 
-          SDK=/root/.buildozer/android/platform/android-sdk
-          mkdir -p "$SDK/tools/bin"
+    # Чистое принятие лицензий непосредственно в бинарник sdkmanager от Google
+    - name: Run Buildozer with Targeted SDK License Acceptance
+      run: |
+        docker run --rm \
+          -u 0:0 \
+          -v "$(pwd)":/github/workspace \
+          -w /github/workspace \
+          -e BUILDOZER_WARN_ON_ROOT=0 \
+          -e APP_ANDROID_ACCEPT_SDK_LICENSE="true" \
+          --entrypoint /bin/bash \
+          ghcr.io/kivy/buildozer:latest -c "
+            # Шаг 1. Предварительно создаем каталоги для инициализации SDK
+            SDK_ROOT=\"/root/.buildozer/android/platform/android-sdk\"
+            HOME_SDK=\"/github/home/.buildozer/android/platform/android-sdk\"
+            
+            mkdir -p \"\$SDK_ROOT/licenses\"
+            mkdir -p \"\$HOME_SDK/licenses\"
+            
+            # Предзапись базовых хэшей
+            HASH_SDK=\"\n8933bad161af4b6a5b573652ffc7aaf3aee85a47\n24333f1a50b6a8d67385315074ed226d875080be\n893a5cd8e1b672669ab80f8db3ad48a32396d93a\"
+            echo -e \"\$HASH_SDK\" > \"\$SDK_ROOT/licenses/android-sdk-license\"
+            echo -e \"\$HASH_SDK\" > \"\$HOME_SDK/licenses/android-sdk-license\"
 
-          # 1. Найти или скачать sdkmanager (на случай, если его нет)
-          REAL="$(find /root/.buildozer /github/home/.buildozer -type f -name sdkmanager 2>/dev/null | head -n1 || true)"
-          if [ -z "$REAL" ]; then
-            echo "sdkmanager не найден, скачиваем cmdline-tools..."
-            curl -sSLo /tmp/cmdline.zip \
-              https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
-            mkdir -p "$SDK/cmdline-tools"
-            unzip -q /tmp/cmdline.zip -d "$SDK/cmdline-tools"
-            mv "$SDK/cmdline-tools/cmdline-tools" "$SDK/cmdline-tools/latest"
-            REAL="$SDK/cmdline-tools/latest/bin/sdkmanager"
-          fi
-          ln -sf "$REAL" "$SDK/tools/bin/sdkmanager"
+            # Шаг 2. Запускаем первый цикл buildozer, чтобы он гарантированно скачал cmdline-tools
+            buildozer android debug || {
+              echo 'Первый проход завершен. Начинаем целевую работу с sdkmanager подпроцесса...';
+              
+              # Ищем оригинальный sdkmanager от Google на диске контейнера
+              SDKMANAGER=\$(find /root/.buildozer /github/home/.buildozer -name sdkmanager -type f 2>/dev/null | head -n1)
+              
+              if [ -n \"\$SDKMANAGER\" ]; then
+                CURRENT_ROOT=\$(dirname \$(dirname \$(dirname \$(dirname \"\$SDKMANAGER\"))))
+                echo \"Найден оригинальный sdkmanager: \$SDKMANAGER\"
+                echo \"Корневая папка SDK: \$CURRENT_ROOT\"
+                
+                # КЛЮЧЕВОЙ МОМЕНТ: Используем безопасный последовательный echo-поток 
+                # напрямую в команду автоматического аппрува всех лицензий Google SDK!
+                (echo y; sleep 1; echo y) | \"\$SDKMANAGER\" --sdk_root=\"\$CURRENT_ROOT\" --licenses 2>&1
+                
+                # Явно заставляем sdkmanager доустановить build-tools и platform-tools
+                echo 'Принудительно разворачиваем пакет build-tools;34.0.0...';
+                (echo y; sleep 1; echo y) | \"\$SDKMANAGER\" --sdk_root=\"\$CURRENT_ROOT\" \"build-tools;34.0.0\" \"platform-tools\" \"platforms;android-34\" 2>&1
+                
+                # Создаем симлинк на случай, если python-for-android проверяет старый путь
+                mkdir -p \"\$CURRENT_ROOT/tools/bin\"
+                ln -sf \"\$SDKMANAGER\" \"\$CURRENT_ROOT/tools/bin/sdkmanager\"
+              else
+                echo 'КРИТИЧЕСКАЯ ОШИБКА: Автоматика Kivy не смогла выкачать cmdline-tools от Google.'
+                exit 1
+              fi
+              
+              # Шаг 3. Финальная проверка физического наличия компилятора aidl
+              AIDL_PATH=\$(find /root/.buildozer /github/home/.buildozer -name aidl -type f 2>/dev/null | head -n1)
+              if [ -z \"\$AIDL_PATH\" ]; then
+                echo 'ОШИБКА: Родной бинарник aidl отсутствует. Внимательно изучите логи выполнения sdkmanager выше!'
+                exit 1
+              fi
+              echo \"Успех! Оригинальный бинарник aidl от Google верифицирован по пути: \$AIDL_PATH\"
+              
+              # Шаг 4. Повторный чистый запуск компиляции на валидном SDK
+              echo 'Запуск финальной компиляции приложения...';
+              buildozer -v android debug 2>&1
+            }
+          "
 
-          # 2. Обход лицензии: вручную разместить aidl в build-tools
-          echo "Поиск aidl в системе..."
-          SYSTEM_AIDL="$(find / -name aidl -type f 2>/dev/null | head -n1)"
-          if [ -z "$SYSTEM_AIDL" ]; then
-            echo "aidl не найден, пробуем установить через apt..."
-            apt-get update -qq && apt-get install -y -qq aidl 2>/dev/null || true
-            SYSTEM_AIDL="$(command -v aidl || true)"
-          fi
-
-          if [ -n "$SYSTEM_AIDL" ]; then
-            echo "Найден aidl: $SYSTEM_AIDL"
-            mkdir -p "$SDK/build-tools/34.0.0"
-            cp "$SYSTEM_AIDL" "$SDK/build-tools/34.0.0/aidl"
-            chmod +x "$SDK/build-tools/34.0.0/aidl"
-            echo "aidl размещён: $SDK/build-tools/34.0.0/aidl"
-          else
-            echo "::error::Не удалось получить aidl"
-            exit 1
-          fi
-
-          # 3. Патч для Python 3.14
-          python - <<'PY'
-          try:
-              import buildozer.targets.android as a
-              _orig = a.TargetAndroid._android_list_build_tools_versions
-              def _safe(self):
-                  try:
-                      r = _orig(self)
-                      return r if r else ['34.0.0']
-                  except Exception:
-                      return ['34.0.0']
-              a.TargetAndroid._android_list_build_tools_versions = _safe
-          except Exception:
-              pass
-          PY
-          CONTAINER_SCRIPT
-          
-      - name: Build APK
-        timeout-minutes: 60
-        run: |
-          docker run --rm -u 0:0 \
-            -v "$(pwd)":/github/workspace \
-            -w /github/workspace \
-            -e BUILDOZER_WARN_ON_ROOT=0 \
-            ghcr.io/kivy/buildozer:latest android debug
+    # Выгрузка скомпилированных артефактов
+    - name: Upload APK Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: MediaDownloader-APK-${{ env.date }}
+        path: |
+          bin/*.apk
+          .buildozer/**/*.apk
+          **/*.apk
