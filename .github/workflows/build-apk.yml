@@ -22,11 +22,10 @@ jobs:
       uses: actions/cache@v4
       with:
         path: .buildozer_host
-        key: ${{ runner.os }}-buildozer-v13-${{ hashFiles('buildozer.spec') }}
+        key: ${{ runner.os }}-buildozer-v20-${{ hashFiles('buildozer.spec') }}
         restore-keys: |
-          ${{ runner.os }}-buildozer-v13-
+          ${{ runner.os }}-buildozer-v20-
 
-    # Шаг 1: Предварительная установка Android SDK на хосте (логика не изменена)
     - name: Pre-install Official Android SDK on Host
       run: |
         if [ ! -d ".buildozer_host/android/platform/android-sdk/build-tools/34.0.0" ]; then
@@ -62,22 +61,22 @@ jobs:
           echo "Валидный Android SDK восстановлен из кэша."
         fi
 
-    # Шаг 2: Сборка в контейнере Python 3.11, принудительное использование рецептов p4a, а не PyPI
     - name: Run Buildozer inside Python 3.11 Container
       run: |
         chmod -R 777 .buildozer_host
         
-        # Внедрение пути SDK и отключение автоматического обновления
+        # Инжекция пути SDK
         sed -i 's|^#\s*android.sdk_path\s*=.*|android.sdk_path = /root/.buildozer/android/platform/android-sdk|g' buildozer.spec
         sed -i 's|^android.sdk_path\s*=.*|android.sdk_path = /root/.buildozer/android/platform/android-sdk|g' buildozer.spec
         sed -i 's|^#\s*android.skip_update\s*=.*|android.skip_update = True|g' buildozer.spec
         sed -i 's|^android.skip_update\s*=.*|android.skip_update = True|g' buildozer.spec
         
-        # Ключевое изменение: используем URL GitHub для kivy, чтобы принудительно загрузить исходный код и обойти поиск в PyPI
-        # pyjnius НЕ указываем — p4a использует встроенный рецепт (версия 1.7.0)
-        sed -i 's|^requirements\s*=.*|requirements = python3,kivy==https://github.com/kivy/kivy/archive/refs/tags/2.3.1.zip,yt-dlp,requests|g' buildozer.spec
+        # КРИТИЧЕСКИ ВАЖНО: указываем локальный рецепт, kivy без версии
+        sed -i 's|^requirements\s*=.*|requirements = python3,kivy,cython==0.29.34,yt-dlp,requests|g' buildozer.spec
+        sed -i 's|^#\s*p4a.local_recipes\s*=.*|p4a.local_recipes = /github/workspace/p4a-recipes|g' buildozer.spec
+        sed -i 's|^p4a.local_recipes\s*=.*|p4a.local_recipes = /github/workspace/p4a-recipes|g' buildozer.spec
         
-        # Используем ветку develop p4a для исправления совместимости с Python 3.11
+        # Переключение на develop для получения последних исправлений других рецептов
         sed -i 's|^#\s*p4a.branch\s*=.*|p4a.branch = develop|g' buildozer.spec
         sed -i 's|^p4a.branch\s*=.*|p4a.branch = develop|g' buildozer.spec
 
@@ -93,25 +92,27 @@ jobs:
             apt-get update && apt-get install -y --no-install-recommends \
               openjdk-17-jdk-headless git zip unzip xclip curl wget libffi-dev \
               libssl-dev autoconf automake libtool pkg-config zlib1g-dev \
-              build-essential ccache libncursesw5-dev libncurses-dev
+              build-essential ccache libncurses-dev
             
             echo '=== ШАГ Б: УСТАНОВКА ИНСТРУМЕНТОВ СБОРКИ ==='
-            # Cython 3.0.x совместим с Kivy 2.3.x
-            pip install --no-cache-dir --upgrade pip setuptools wheel Cython==3.0.11 buildozer
+            # Cython <3.0 совместим с Kivy 2.3.x, избегаем ошибки longintrepr.h
+            pip install --no-cache-dir --upgrade pip setuptools wheel 'Cython<3.0' buildozer
             
             echo '=== ШАГ В: НАСТРОЙКА ОКРУЖЕНИЯ ==='
             export ANDROID_HOME=/root/.buildozer/android/platform/android-sdk
             export ANDROID_SDK_ROOT=/root/.buildozer/android/platform/android-sdk
             export PATH=\$ANDROID_HOME/cmdline-tools/latest/bin:\$ANDROID_HOME/platform-tools:\$PATH
             
-            # Очистка старых кэшей p4a, чтобы гарантировать использование новых рецептов
+            # Очистка кэша p4a, чтобы гарантировать применение локального рецепта
             rm -rf /root/.buildozer/android/platform/python-for-android
             
             mkdir -p /root/.buildozer/android/platform/android-sdk/tools/bin
             ln -sf /root/.buildozer/android/platform/android-sdk/cmdline-tools/latest/bin/sdkmanager /root/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager
             
             echo '=== ПРОВЕРКА КОНФИГУРАЦИИ ==='
-            grep -E 'android.sdk_path|requirements|p4a.branch' buildozer.spec
+            grep -E 'android.sdk_path|requirements|p4a.local_recipes|p4a.branch' buildozer.spec
+            echo '=== ПРОВЕРКА ЛОКАЛЬНОГО РЕЦЕПТА ==='
+            cat /github/workspace/p4a-recipes/kivy/__init__.py
             echo '====================================================================='
             
             echo '=== ШАГ Г: ЗАПУСК СБОРКИ ==='
