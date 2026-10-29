@@ -18,87 +18,94 @@ jobs:
       run: |
         echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
 
+    # Глобальное кэширование предобученного SDK хоста
     - name: Cache Buildozer Global Tooling
       uses: actions/cache@v4
       with:
-        path: |
-          ~/.buildozer
-          .buildozer
-        key: ${{ runner.os }}-buildozer-${{ hashFiles('buildozer.spec') }}
+        path: .buildozer_host
+        key: ${{ runner.os }}-buildozer-v6-${{ hashFiles('buildozer.spec') }}
         restore-keys: |
-          ${{ runner.os }}-buildozer-
+          ${{ runner.os }}-buildozer-v6-
 
-    # Чистое принятие лицензий непосредственно в бинарник sdkmanager от Google
-    - name: Run Buildozer with Targeted SDK License Acceptance
+    # Шаг 1. Чистая предустановка Android SDK на хост-машине Ubuntu (URL исправлен)
+    - name: Pre-install Official Android SDK on Host
       run: |
+        if [ ! -d ".buildozer_host/android/platform/android-sdk/build-tools/34.0.0" ]; then
+          echo "Кэш пуст. Начинаем чистую загрузку оригинального Android SDK..."
+          
+          # Создаем структуру каталогов, строго соответствующую требованиям Google Repository
+          mkdir -p .buildozer_host/android/platform/android-sdk/cmdline-tools
+          cd .buildozer_host/android/platform/android-sdk/cmdline-tools
+          
+          # ОПЕЧАТКА ИСПРАВЛЕНА: Скачиваем легитимные инструменты командной строки с серверов Google
+          curl -sL https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -o cmdline-tools.zip
+          unzip -q cmdline-tools.zip && rm cmdline-tools.zip
+          
+          # Переименовываем распакованную корневую папку под стандарт 'latest', требуемый sdkmanager
+          mv cmdline-tools latest
+          
+          # Нативно принимаем все лицензии на стабильном хосте Ubuntu (без Broken Pipe)
+          echo "y" | latest/bin/sdkmanager --sdk_root=../ "build-tools;34.0.0" "platform-tools" "platforms;android-34"
+          
+          cd ../../../../..
+        else
+          echo "Валидный Android SDK с предустановленным AIDL успешно восстановлен из кэша."
+        fi
+
+    # Шаг 2. Запуск Docker-контейнера со сквозным маппингом и принудительной подменой spec-файла
+    - name: Run Buildozer inside Mounted SDK Container
+      run: |
+        # Гарантируем права root для Docker на запись в кэш хоста
+        chmod -R 777 .buildozer_host
+        
+        # Принудительно инжектируем точный путь к SDK в spec-файл, 
+        # стирая любые старые или закомментированные строки, которые могли там быть.
+        sed -i 's|^#\s*android.sdk_path\s*=.*|android.sdk_path = /root/.buildozer/android/platform/android-sdk|g' buildozer.spec
+        sed -i 's|^android.sdk_path\s*=.*|android.sdk_path = /root/.buildozer/android/platform/android-sdk|g' buildozer.spec
+        
+        # Принуждаем p4a пропустить любые фоновые обновления сетевых репозиториев
+        sed -i 's|^#\s*android.skip_update\s*=.*|android.skip_update = True|g' buildozer.spec
+        sed -i 's|^android.skip_update\s*=.*|android.skip_update = True|g' buildozer.spec
+
         docker run --rm \
           -u 0:0 \
           -v "$(pwd)":/github/workspace \
+          -v "$(pwd)/.buildozer_host":/root/.buildozer \
           -w /github/workspace \
           -e BUILDOZER_WARN_ON_ROOT=0 \
           -e APP_ANDROID_ACCEPT_SDK_LICENSE="true" \
           --entrypoint /bin/bash \
           ghcr.io/kivy/buildozer:latest -c "
-            # Шаг 1. Предварительно создаем каталоги для инициализации SDK
-            SDK_ROOT=\"/root/.buildozer/android/platform/android-sdk\"
-            HOME_SDK=\"/github/home/.buildozer/android/platform/android-sdk\"
+            # Настройка переменных окружения внутри контейнера
+            export ANDROID_HOME=/root/.buildozer/android/platform/android-sdk
+            export ANDROID_SDK_ROOT=/root/.buildozer/android/platform/android-sdk
+            export PATH=\$ANDROID_HOME/cmdline-tools/latest/bin:\$ANDROID_HOME/platform-tools:\$PATH
             
-            mkdir -p \"\$SDK_ROOT/licenses\"
-            mkdir -p \"\$HOME_SDK/licenses\"
+            echo '=== СОЗДАНИЕ И ВЕРИФИКАЦИЯ СИМЛИНКОВ ВНУТРИ КОНТЕЙНЕРА ==='
             
-            # Предзапись базовых хэшей
-            HASH_SDK=\"\n8933bad161af4b6a5b573652ffc7aaf3aee85a47\n24333f1a50b6a8d67385315074ed226d875080be\n893a5cd8e1b672669ab80f8db3ad48a32396d93a\"
-            echo -e \"\$HASH_SDK\" > \"\$SDK_ROOT/licenses/android-sdk-license\"
-            echo -e \"\$HASH_SDK\" > \"\$HOME_SDK/licenses/android-sdk-license\"
-
-            # Шаг 2. Запускаем первый цикл buildozer, чтобы он гарантированно скачал cmdline-tools
-            buildozer android debug || {
-              echo 'Первый проход завершен. Начинаем целевую работу с sdkmanager подпроцесса...';
-              
-              # Ищем оригинальный sdkmanager от Google на диске контейнера
-              SDKMANAGER=\$(find /root/.buildozer /github/home/.buildozer -name sdkmanager -type f 2>/dev/null | head -n1)
-              
-              if [ -n \"\$SDKMANAGER\" ]; then
-                CURRENT_ROOT=\$(dirname \$(dirname \$(dirname \$(dirname \"\$SDKMANAGER\"))))
-                echo \"Найден оригинальный sdkmanager: \$SDKMANAGER\"
-                echo \"Корневая папка SDK: \$CURRENT_ROOT\"
-                
-                # КЛЮЧЕВОЙ МОМЕНТ: Используем безопасный последовательный echo-поток 
-                # напрямую в команду автоматического аппрува всех лицензий Google SDK!
-                (echo y; sleep 1; echo y) | \"\$SDKMANAGER\" --sdk_root=\"\$CURRENT_ROOT\" --licenses 2>&1
-                
-                # Явно заставляем sdkmanager доустановить build-tools и platform-tools
-                echo 'Принудительно разворачиваем пакет build-tools;34.0.0...';
-                (echo y; sleep 1; echo y) | \"\$SDKMANAGER\" --sdk_root=\"\$CURRENT_ROOT\" \"build-tools;34.0.0\" \"platform-tools\" \"platforms;android-34\" 2>&1
-                
-                # Создаем симлинк на случай, если python-for-android проверяет старый путь
-                mkdir -p \"\$CURRENT_ROOT/tools/bin\"
-                ln -sf \"\$SDKMANAGER\" \"\$CURRENT_ROOT/tools/bin/sdkmanager\"
-              else
-                echo 'КРИТИЧЕСКАЯ ОШИБКА: Автоматика Kivy не смогла выкачать cmdline-tools от Google.'
-                exit 1
-              fi
-              
-              # Шаг 3. Финальная проверка физического наличия компилятора aidl
-              AIDL_PATH=\$(find /root/.buildozer /github/home/.buildozer -name aidl -type f 2>/dev/null | head -n1)
-              if [ -z \"\$AIDL_PATH\" ]; then
-                echo 'ОШИБКА: Родной бинарник aidl отсутствует. Внимательно изучите логи выполнения sdkmanager выше!'
-                exit 1
-              fi
-              echo \"Успех! Оригинальный бинарник aidl от Google верифицирован по пути: \$AIDL_PATH\"
-              
-              # Шаг 4. Повторный чистый запуск компиляции на валидном SDK
-              echo 'Запуск финальной компиляции приложения...';
-              buildozer -v android debug 2>&1
-            }
+            # Структура (Для старых версий p4a): создаем ссылку там, где ее ищет os.path.isfile()
+            mkdir -p /root/.buildozer/android/platform/android-sdk/tools/bin
+            ln -sf /root/.buildozer/android/platform/android-sdk/cmdline-tools/latest/bin/sdkmanager /root/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager
+            
+            # Проверка существования файлов через test -f (как требовалось)
+            test -f /root/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager && echo 'tools/bin/sdkmanager: FOUND' || echo 'tools/bin/sdkmanager: NOT FOUND'
+            test -f /root/.buildozer/android/platform/android-sdk/build-tools/34.0.0/aidl && echo 'build-tools/34.0.0/aidl (REAL GOOGLE AIDL): FOUND' || echo 'build-tools/aidl: NOT FOUND'
+            echo '====================================================================='
+            
+            # Проверяем, как sed модифицировал конфигурационный файл buildozer.spec
+            echo 'Проверка инжектированного пути в buildozer.spec:'
+            grep -E 'android.sdk_path|android.skip_update' buildozer.spec
+            echo '====================================================================='
+            
+            # Запуск компиляции в детальном (verbose) режиме
+            buildozer -v android debug 2>&1
           "
 
-    # Выгрузка скомпилированных артефактов
+    # Шаг 3. Сохранение готового APK
     - name: Upload APK Artifact
       uses: actions/upload-artifact@v4
       with:
         name: MediaDownloader-APK-${{ env.date }}
         path: |
           bin/*.apk
-          .buildozer/**/*.apk
           **/*.apk
