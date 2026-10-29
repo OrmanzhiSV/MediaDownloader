@@ -1,17 +1,85 @@
+name: Build Mobile App
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Get Date
+      id: get-date
+      run: |
+        echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
+
+    - name: Cache Buildozer Global Tooling
+      uses: actions/cache@v4
+      with:
+        path: .buildozer_host
+        key: ${{ runner.os }}-buildozer-v21-${{ hashFiles('buildozer.spec') }}
+        restore-keys: |
+          ${{ runner.os }}-buildozer-v21-
+
+    - name: Pre-install Official Android SDK on Host
+      run: |
+        if [ ! -d ".buildozer_host/android/platform/android-sdk/build-tools/34.0.0" ]; then
+          echo "Кэш пуст. Начинаем чистую загрузку оригинального Android SDK..."
+          
+          mkdir -p .buildozer_host/android/platform/android-sdk/cmdline-tools
+          cd .buildozer_host/android/platform/android-sdk/cmdline-tools
+          
+          curl --fail --location --retry 3 --retry-delay 2 --retry-connrefused \
+               --show-error \
+               -o cmdline-tools.zip \
+               https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+          
+          unzip -t cmdline-tools.zip > /dev/null 2>&1 || {
+            echo "::error::Скачанный zip повреждён."
+            rm -f cmdline-tools.zip
+            exit 1
+          }
+          
+          unzip -q cmdline-tools.zip && rm cmdline-tools.zip
+          
+          if [ ! -d "cmdline-tools" ]; then
+            echo "::error::После распаковки не найдена папка cmdline-tools"
+            exit 1
+          fi
+          
+          mv cmdline-tools latest
+          
+          echo "y" | latest/bin/sdkmanager --sdk_root=../ "build-tools;34.0.0" "platform-tools" "platforms;android-34"
+          
+          cd ../../../../..
+        else
+          echo "Валидный Android SDK восстановлен из кэша."
+        fi
+
     - name: Run Buildozer inside Python 3.11 Container
       run: |
         chmod -R 777 .buildozer_host
         
+        # Инжекция пути SDK
         sed -i 's|^#\s*android.sdk_path\s*=.*|android.sdk_path = /root/.buildozer/android/platform/android-sdk|g' buildozer.spec
         sed -i 's|^android.sdk_path\s*=.*|android.sdk_path = /root/.buildozer/android/platform/android-sdk|g' buildozer.spec
         sed -i 's|^#\s*android.skip_update\s*=.*|android.skip_update = True|g' buildozer.spec
         sed -i 's|^android.skip_update\s*=.*|android.skip_update = True|g' buildozer.spec
         
-        # Ключевое: явно указываем p4a скомпилировать Python 3.11.9, а не использовать 3.14 из образа
+        # Ключевое: зафиксировать python3 и hostpython3 на версии 3.11.9, избежать автоматического использования 3.14
+        # Согласно результатам поиска, Kivy 2.3.1 поддерживает максимум Python 3.13, фиксация на 3.11 безопаснее
         sed -i 's|^requirements\s*=.*|requirements = python3==3.11.9,hostpython3==3.11.9,kivy,cython==0.29.34,yt-dlp,requests|g' buildozer.spec
         
+        # Локальный рецепт: полный URL, в обход встроенного шаблона p4a
         sed -i 's|^#\s*p4a.local_recipes\s*=.*|p4a.local_recipes = /github/workspace/p4a-recipes|g' buildozer.spec
         sed -i 's|^p4a.local_recipes\s*=.*|p4a.local_recipes = /github/workspace/p4a-recipes|g' buildozer.spec
+        
+        # develop ветка для получения последних исправлений
         sed -i 's|^#\s*p4a.branch\s*=.*|p4a.branch = develop|g' buildozer.spec
         sed -i 's|^p4a.branch\s*=.*|p4a.branch = develop|g' buildozer.spec
 
@@ -30,6 +98,8 @@
               build-essential ccache libncurses-dev
             
             echo '=== ШАГ Б: УСТАНОВКА ИНСТРУМЕНТОВ СБОРКИ (включая legacy-cgi) ==='
+            # legacy-cgi заполняет пробел с модулем cgi, решает ошибку Cython на Python 3.13+
+            # Cython<3.0 совместим с Kivy 2.3.x
             pip install --no-cache-dir --upgrade pip setuptools wheel 'Cython<3.0' legacy-cgi buildozer
             
             echo '=== ШАГ В: НАСТРОЙКА ОКРУЖЕНИЯ ==='
@@ -37,7 +107,7 @@
             export ANDROID_SDK_ROOT=/root/.buildozer/android/platform/android-sdk
             export PATH=\$ANDROID_HOME/cmdline-tools/latest/bin:\$ANDROID_HOME/platform-tools:\$PATH
             
-            # Полная очистка: удаляем p4a и все скомпилированные артефакты
+            # Полная очистка: p4a + все скомпилированные артефакты, принудительное использование нового hostpython3
             rm -rf /root/.buildozer/android/platform/python-for-android
             rm -rf /root/.buildozer/android/platform/build-*
             rm -rf /root/.buildozer/android/platform/apache-ant-*
@@ -47,8 +117,18 @@
             
             echo '=== ПРОВЕРКА КОНФИГУРАЦИИ ==='
             grep -E 'android.sdk_path|requirements|p4a.local_recipes|p4a.branch' buildozer.spec
+            echo '=== ПРОВЕРКА ЛОКАЛЬНОГО РЕЦЕПТА ==='
+            cat /github/workspace/p4a-recipes/kivy/__init__.py
             echo '====================================================================='
             
             echo '=== ШАГ Г: ЗАПУСК СБОРКИ ==='
             buildozer -v android debug 2>&1
           "
+
+    - name: Upload APK Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: MediaDownloader-APK-${{ env.date }}
+        path: |
+          bin/*.apk
+          **/*.apk
