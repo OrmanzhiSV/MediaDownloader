@@ -13,6 +13,15 @@ orientation = portrait
 fullscreen = 0
 icon.filename = icon.ico
 
+# Указываем целевую версию Android (API 36 для Android 16)
+android.api = 36
+# Минимальная версия, которую поддерживаем (можно оставить 21 или 24)
+android.minapi = 24
+# Используем современный NDK (r27+ обязателен для новых Android)
+android.ndk = 27b
+# Ветка p4a, которая содержит исправления для новых Android
+p4a.branch = develop
+
 [buildozer]
 log_level = 2
 warn_on_root = 0
