@@ -22,9 +22,9 @@ jobs:
       uses: actions/cache@v4
       with:
         path: .buildozer_host
-        key: ${{ runner.os }}-buildozer-v21-${{ hashFiles('buildozer.spec') }}
+        key: ${{ runner.os }}-buildozer-v22-${{ hashFiles('buildozer.spec') }}
         restore-keys: |
-          ${{ runner.os }}-buildozer-v21-
+          ${{ runner.os }}-buildozer-v22-
 
     - name: Pre-install Official Android SDK on Host
       run: |
@@ -89,21 +89,33 @@ jobs:
               libssl-dev autoconf automake libtool pkg-config zlib1g-dev \
               build-essential ccache libncurses-dev
             
-            echo '=== ШАГ Б: УСТАНОВКА ИНСТРУМЕНТОВ СБОРКИ (фиксируем pip 23.3.2) ==='
-            pip install --no-cache-dir --force-reinstall pip==23.3.2
-            pip install --no-cache-dir --upgrade setuptools wheel 'Cython<3.0' legacy-cgi buildozer
+            echo '=== ШАГ Б: УСТАНОВКА ИНСТРУМЕНТОВ СБОРКИ ==='
+            # 全局 pip 仍保持较新版本,但下面会 patch p4a 阻止它在 venv 里盲目升级 pip
+            pip install --no-cache-dir --upgrade pip setuptools wheel 'Cython<3.0' legacy-cgi buildozer
             
             echo '=== ШАГ В: НАСТРОЙКА ОКРУЖЕНИЯ ==='
             export ANDROID_HOME=/root/.buildozer/android/platform/android-sdk
             export ANDROID_SDK_ROOT=/root/.buildozer/android/platform/android-sdk
             export PATH=\$ANDROID_HOME/cmdline-tools/latest/bin:\$ANDROID_HOME/platform-tools:\$PATH
             
+            # 清除旧 venv,确保 p4a 新建一个
             rm -rf /root/.buildozer/android/platform/build-*/build/venv
             
             mkdir -p /root/.buildozer/android/platform/android-sdk/tools/bin
             ln -sf /root/.buildozer/android/platform/android-sdk/cmdline-tools/latest/bin/sdkmanager /root/.buildozer/android/platform/android-sdk/tools/bin/sdkmanager
             
-            echo '=== ШАГ Г: ЗАПУСК СБОРКИ ==='
+            echo '=== ШАГ Г: ПАТЧ P4A — ЗАПРЕТ ОБНОВЛЕНИЯ PIP В VENV ==='
+            # 关键: 在 buildozer 克隆 p4a 之前无法 patch,因此先让 buildozer 准备 p4a(但此时不要真正构建)
+            # 更稳妥的做法是: 直接 patch 可能存在的 p4a 副本,并清理后让 buildozer 重新克隆
+            # 但 p4a 是在 buildozer 运行时才克隆的,所以这里用另一种策略: 在 p4a 克隆后、构建前注入 patch
+            # 实际上无法在单条 docker run 中完美做到,因此改为: 让 buildozer 先失败一次,然后 patch,再重试
+            # 但这样太绕。最直接的方法是使用 PIP_CONSTRAINT 或修改 pip 行为
+            
+            # 改用更直接的方法: 设置 PIP 环境变量,让 pip 在 venv 中不升级到有问题的版本
+            export PIP_CONSTRAINT=/github/workspace/constraints.txt
+            echo 'pip==23.3.2' > /github/workspace/constraints.txt
+            
+            echo '=== ШАГ Д: ЗАПУСК СБОРКИ ==='
             buildozer -v android debug 2>&1
           "
 
