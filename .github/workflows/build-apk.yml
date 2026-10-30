@@ -22,9 +22,9 @@ jobs:
       uses: actions/cache@v4
       with:
         path: .buildozer_host
-        key: ${{ runner.os }}-buildozer-v22-${{ hashFiles('buildozer.spec') }}
+        key: ${{ runner.os }}-buildozer-v23-${{ hashFiles('buildozer.spec') }}
         restore-keys: |
-          ${{ runner.os }}-buildozer-v22-
+          ${{ runner.os }}-buildozer-v23-
 
     - name: Pre-install Official Android SDK on Host
       run: |
