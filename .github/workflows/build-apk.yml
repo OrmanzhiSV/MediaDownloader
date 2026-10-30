@@ -96,7 +96,7 @@ jobs:
             apt-get update && apt-get install -y --no-install-recommends \
               openjdk-17-jdk-headless git zip unzip xclip curl wget libffi-dev \
               libssl-dev autoconf automake libtool pkg-config zlib1g-dev \
-              build-essential ccache libncurses-dev
+              build-essential ccache libncurses-dev cmake
             
             echo '=== ШАГ Б: УСТАНОВКА ИНСТРУМЕНТОВ СБОРКИ ==='
             # 全局 pip 仍保持较新版本,但下面会 patch p4a 阻止它在 venv 里盲目升级 pip
