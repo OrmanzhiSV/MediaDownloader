@@ -26,9 +26,6 @@ android.permissions = INTERNET
 # Исключаем лишние файлы из сборки
 source.exclude_patterns = app.py,create_installer.bat,test_mobile.py,verify_mobile.py
 
-# Главный файл
-android.entrypoint = main.py
-
 [buildozer]
 log_level = 2
 warn_on_root = 0
