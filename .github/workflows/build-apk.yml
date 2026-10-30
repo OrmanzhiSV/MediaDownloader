@@ -61,8 +61,8 @@ jobs:
           echo "Валидный Android SDK восстановлен из кэша."
         fi
 
-        - name: Run Buildozer inside Python 3.11 Container
-        run: |
+    - name: Run Buildozer inside Python 3.11 Container
+      run: |
         chmod -R 777 .buildozer_host
         
         sed -i 's|^#\s*android.sdk_path\s*=.*|android.sdk_path = /root/.buildozer/android/platform/android-sdk|g' buildozer.spec
@@ -98,7 +98,6 @@ jobs:
             export ANDROID_SDK_ROOT=/root/.buildozer/android/platform/android-sdk
             export PATH=\$ANDROID_HOME/cmdline-tools/latest/bin:\$ANDROID_HOME/platform-tools:\$PATH
             
-            # Удаляем старый venv, чтобы p4a создал его заново с правильным pip
             rm -rf /root/.buildozer/android/platform/build-*/build/venv
             
             mkdir -p /root/.buildozer/android/platform/android-sdk/tools/bin
