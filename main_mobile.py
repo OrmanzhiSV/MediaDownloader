@@ -110,26 +110,36 @@ class MediaDownloaderApp(App):
     
     def download_worker(self, url):
         try:
-            # 1. Пытаемся получить папку
+            # 1. Создаем папку для скачивания
+            # Используем app_storage_path() — это приватная папка приложения, куда писать можно без разрешений
             try:
                 from android.storage import app_storage_path
                 download_dir = os.path.join(app_storage_path(), "Download")
                 os.makedirs(download_dir, exist_ok=True)
-                Clock.schedule_once(lambda dt: setattr(self.status_label, 'text', f'Папка: {download_dir}'), 0)
+                # Проверяем, что папка действительно создалась и в нее можно писать
+                test_file = os.path.join(download_dir, "test.txt")
+                with open(test_file, 'w') as f:
+                    f.write("test")
+                os.remove(test_file)
+                Clock.schedule_once(lambda dt: setattr(self.status_label, 'text', 'Папка готова. Начинаем...'), 0)
             except Exception as e:
-                Clock.schedule_once(lambda dt, msg=str(e): setattr(self.status_label, 'text', f'Ошибка папки: {msg}'), 0)
-                download_dir = os.path.expanduser("~/Downloads")
-                os.makedirs(download_dir, exist_ok=True)
+                err = str(e)
+                Clock.schedule_once(lambda dt, m=err: setattr(self.status_label, 'text', f'Ошибка папки: {m}'), 0)
+                return
 
-            # 2. Настраиваем yt-dlp (БЕЗ progress_hooks, чтобы избежать вылетов)
+            # 2. Настраиваем yt-dlp
             ydl_opts = {
                 'outtmpl': os.path.join(download_dir, '%(title)s.%(ext)s'),
-                # Скачиваем просто лучшее видео (без склейки, чтобы не требовать ffmpeg)
-                'format': 'best[height<=480]/best', 
+                'format': 'best[height<=480]/best',
                 'nocheckcertificate': True,
+                'quiet': True,          # Отключаем лишний вывод в консоль
+                'no_warnings': True,    # Отключаем предупреждения
+                'noprogress': True,     # Отключаем прогресс-бар yt-dlp (у нас свой)
+                # Явно указываем, куда писать кэш (в приватную папку)
+                'cachedir': os.path.join(app_storage_path(), '.cache'),
             }
             
-            Clock.schedule_once(lambda dt: setattr(self.status_label, 'text', 'Соединение с сервером...'), 0)
+            Clock.schedule_once(lambda dt: setattr(self.status_label, 'text', 'Скачивание...'), 0)
             
             # 3. Запускаем скачивание
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
