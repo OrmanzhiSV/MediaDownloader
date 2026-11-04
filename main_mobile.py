@@ -23,6 +23,11 @@ except Exception as e:
     YT_DLP_AVAILABLE = False
     YT_DLP_ERROR = str(e)
 
+# Создаём "пустой" логгер, который ничего не делает
+class EmptyLogger:
+    def debug(self, msg): pass
+    def warning(self, msg): pass
+    def error(self, msg): pass
 
 class MediaDownloaderApp(App):
     def build(self):
@@ -135,6 +140,7 @@ class MediaDownloaderApp(App):
                 'quiet': True,          # Отключаем лишний вывод в консоль
                 'no_warnings': True,    # Отключаем предупреждения
                 'noprogress': True,     # Отключаем прогресс-бар yt-dlp (у нас свой)
+                'logger': EmptyLogger(),  # <-- КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ
                 # Явно указываем, куда писать кэш (в приватную папку)
                 'cachedir': os.path.join(app_storage_path(), '.cache'),
             }
