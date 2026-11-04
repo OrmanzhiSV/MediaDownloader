@@ -160,21 +160,19 @@ class MediaDownloaderApp(App):
             download_dir = os.path.join(app_storage_path(), "Download")
             os.makedirs(download_dir, exist_ok=True)
 
-            # 2. Формируем строку формата (БЕЗ склейки, чтобы yt-dlp не искал ffmpeg)
+            # 2. Формируем строку формата (раздельные видео и аудио)
             lang_filter = f"[language^={self.selected_lang}]" if self.selected_lang else ""
             
             if self.selected_format == 'audio':
                 format_string = f"bestaudio{lang_filter}/bestaudio"
             else:
                 height = 480 if self.selected_format == '480p' else 360
-                # Берем раздельные видео и аудио
                 format_string = (
                     f"bestvideo[height<={height}][ext=mp4]+bestaudio[ext=m4a]{lang_filter}/"
                     f"bestvideo[height<={height}]+bestaudio{lang_filter}"
                 )
 
             ydl_opts = {
-                # Сохраняем с суффиксом .f%(format_id)s, чтобы не было конфликта имен
                 'outtmpl': os.path.join(download_dir, '%(title)s.f%(format_id)s.%(ext)s'),
                 'format': format_string,
                 'nocheckcertificate': True,
@@ -183,24 +181,24 @@ class MediaDownloaderApp(App):
                 'noprogress': True,
                 'logger': EmptyLogger(),
                 'cachedir': os.path.join(app_storage_path(), '.cache'),
+                # КРИТИЧЕСКИ ВАЖНО: говорим yt-dlp НЕ искать ffmpeg и не пытаться склеивать
+                'ffmpeg_location': None, 
+                'postprocessors': [], # Убираем автоматические постпроцессоры
             }
             
             Clock.schedule_once(lambda dt: setattr(self.status_label, 'text', 'Скачивание потоков...'), 0)
             
-            # 3. Скачиваем БЕЗ склейки (yt-dlp просто сохранит два файла)
+            # 3. Скачиваем БЕЗ склейки
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=True)
-                # Получаем имена скачанных файлов
                 requested_downloads = info.get('requested_downloads', [])
                 if not requested_downloads:
                     raise Exception("Не удалось получить информацию о скачанных файлах")
                 
-                filepaths = []
-                for dl in requested_downloads:
-                    filepaths.append(dl['filepath'])
+                filepaths = [dl['filepath'] for dl in requested_downloads]
                 
                 if len(filepaths) < 2:
-                    # Если скачался только один файл (например, аудио), просто переименуем
+                    # Если скачался только один файл (например, аудио), просто оставляем его
                     final_path = filepaths[0]
                 else:
                     # 4. Склеиваем через FFmpeg-Kit
@@ -209,25 +207,31 @@ class MediaDownloaderApp(App):
                     video_path = None
                     audio_path = None
                     for p in filepaths:
-                        if '.m4a' in p or '.webm' in p: # аудио
+                        if '.m4a' in p or '.webm' in p or 'audio' in p.lower():
                             audio_path = p
                         else:
                             video_path = p
                     
                     if not video_path or not audio_path:
-                        raise Exception("Не удалось определить видео или аудио файл")
+                        # Если не удалось определить, пробуем взять первые два
+                        video_path, audio_path = filepaths[0], filepaths[1]
 
                     final_path = os.path.join(download_dir, f"{info['title']}.mp4")
                     
                     # Вызываем FFmpeg через pyjnius
+                    from jnius import autoclass
                     FFMPEG = autoclass('com.sahib.pyff.ffpy')
-                    # Команда для склейки (копируем кодеки без перекодирования)
+                    
+                    # Команда для склейки
                     cmd = f'-i "{video_path}" -i "{audio_path}" -c copy "{final_path}"'
                     output = FFMPEG.Run(cmd)
                     
                     # Удаляем временные файлы
-                    os.remove(video_path)
-                    os.remove(audio_path)
+                    try:
+                        os.remove(video_path)
+                        os.remove(audio_path)
+                    except:
+                        pass
 
             Clock.schedule_once(lambda dt: self.on_success(), 0)
             
