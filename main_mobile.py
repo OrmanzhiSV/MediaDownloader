@@ -14,10 +14,12 @@ from kivy.clock import Clock
 from kivy.core.clipboard import Clipboard
 from kivy.core.window import Window
 
+# Импортируем pyjnius для вызова FFmpeg
+from jnius import autoclass
+
 # Устанавливаем светлый фон
 Window.clearcolor = (0.95, 0.95, 0.95, 1)
 
-# Защита от конфликта логгеров Kivy и yt-dlp
 try:
     import yt_dlp
     YT_DLP_AVAILABLE = True
@@ -27,7 +29,6 @@ except Exception as e:
 
 
 class EmptyLogger:
-    """Пустой логгер, чтобы yt-dlp не писал в stdout и не ломал Kivy"""
     def debug(self, msg): pass
     def warning(self, msg): pass
     def error(self, msg): pass
@@ -61,15 +62,12 @@ class MediaDownloaderApp(App):
     def create_download_layout(self):
         layout = BoxLayout(orientation='vertical', padding=15, spacing=10)
         
-        # Статус
         self.status_label = Label(
-            text='Готов к работе', 
-            size_hint_y=None, height=40,
+            text='Готов к работе', size_hint_y=None, height=40,
             color=(0, 0, 0, 1)
         )
         layout.add_widget(self.status_label)
         
-        # Ввод URL + Вставить
         input_layout = BoxLayout(orientation='horizontal', size_hint_y=None, height=50, spacing=5)
         self.url_input = TextInput(
             multiline=False, hint_text='Вставьте ссылку...',
@@ -81,7 +79,7 @@ class MediaDownloaderApp(App):
         input_layout.add_widget(paste_btn)
         layout.add_widget(input_layout)
         
-        # --- БЛОК: Выбор формата ---
+        # Выбор формата
         format_layout = BoxLayout(orientation='horizontal', size_hint_y=None, height=40, spacing=5)
         format_layout.add_widget(Label(text="Формат:", color=(0,0,0,1), size_hint_x=0.3))
         self.format_btn = Button(text='480p', size_hint_x=0.7)
@@ -96,7 +94,7 @@ class MediaDownloaderApp(App):
         format_layout.add_widget(self.format_btn)
         layout.add_widget(format_layout)
 
-        # --- БЛОК: Выбор языка ---
+        # Выбор языка
         lang_layout = BoxLayout(orientation='horizontal', size_hint_y=None, height=40, spacing=5)
         lang_layout.add_widget(Label(text="Язык аудио:", color=(0,0,0,1), size_hint_x=0.3))
         self.lang_btn = Button(text='Оригинал', size_hint_x=0.7)
@@ -111,7 +109,6 @@ class MediaDownloaderApp(App):
         lang_layout.add_widget(self.lang_btn)
         layout.add_widget(lang_layout)
         
-        # Кнопка скачивания
         self.download_btn = Button(
             text='Скачать', size_hint_y=None, height=60,
             background_color=(0.1, 0.7, 0.3, 1), color=(1, 1, 1, 1)
@@ -119,7 +116,6 @@ class MediaDownloaderApp(App):
         self.download_btn.bind(on_press=self.start_download)
         layout.add_widget(self.download_btn)
         
-        # Прогресс-бар
         self.progress_bar = ProgressBar(max=100, value=0, size_hint_y=None, height=30)
         layout.add_widget(self.progress_bar)
         
@@ -128,7 +124,7 @@ class MediaDownloaderApp(App):
     def create_settings_layout(self):
         layout = BoxLayout(orientation='vertical', padding=15, spacing=10)
         layout.add_widget(Label(text='Настройки', color=(0,0,0,1), font_size='20sp', size_hint_y=None, height=40))
-        layout.add_widget(Label(text='Выбор формата и языка\ndоступен на главном экране.', color=(0.3,0.3,0.3,1)))
+        layout.add_widget(Label(text='Выбор формата и языка\nдоступен на главном экране.', color=(0.3,0.3,0.3,1)))
         return layout
 
     def select_format(self, value, text):
@@ -160,32 +156,26 @@ class MediaDownloaderApp(App):
     def download_worker(self, url):
         try:
             # 1. Папка для скачивания
-            try:
-                from android.storage import app_storage_path
-                download_dir = os.path.join(app_storage_path(), "Download")
-                os.makedirs(download_dir, exist_ok=True)
-            except Exception as e:
-                err = str(e)
-                Clock.schedule_once(lambda dt, m=err: setattr(self.status_label, 'text', f'Ошибка папки: {m}'), 0)
-                return
+            from android.storage import app_storage_path
+            download_dir = os.path.join(app_storage_path(), "Download")
+            os.makedirs(download_dir, exist_ok=True)
 
-            # 2. Формируем строку формата (как в вашем Windows-приложении, но с фоллбеками)
+            # 2. Формируем строку формата (БЕЗ склейки, чтобы yt-dlp не искал ffmpeg)
             lang_filter = f"[language^={self.selected_lang}]" if self.selected_lang else ""
             
             if self.selected_format == 'audio':
-                format_string = f"bestaudio{lang_filter}/bestaudio/best"
+                format_string = f"bestaudio{lang_filter}/bestaudio"
             else:
                 height = 480 if self.selected_format == '480p' else 360
-                # Пытаемся взять mp4/avc + m4a на нужном языке, если нет — любое видео + аудио, если нет — готовый файл
+                # Берем раздельные видео и аудио
                 format_string = (
-                    f"bestvideo[height<={height}][ext=mp4][vcodec^=avc]+bestaudio[ext=m4a]{lang_filter}/"
-                    f"bestvideo[height<={height}]+bestaudio{lang_filter}/"
-                    f"best[height<={height}]/"
-                    f"best"
+                    f"bestvideo[height<={height}][ext=mp4]+bestaudio[ext=m4a]{lang_filter}/"
+                    f"bestvideo[height<={height}]+bestaudio{lang_filter}"
                 )
 
             ydl_opts = {
-                'outtmpl': os.path.join(download_dir, '%(title)s.%(ext)s'),
+                # Сохраняем с суффиксом .f%(format_id)s, чтобы не было конфликта имен
+                'outtmpl': os.path.join(download_dir, '%(title)s.f%(format_id)s.%(ext)s'),
                 'format': format_string,
                 'nocheckcertificate': True,
                 'quiet': True,
@@ -195,13 +185,50 @@ class MediaDownloaderApp(App):
                 'cachedir': os.path.join(app_storage_path(), '.cache'),
             }
             
-            Clock.schedule_once(lambda dt: setattr(self.status_label, 'text', 'Скачивание...'), 0)
+            Clock.schedule_once(lambda dt: setattr(self.status_label, 'text', 'Скачивание потоков...'), 0)
             
-            # 3. Запуск
+            # 3. Скачиваем БЕЗ склейки (yt-dlp просто сохранит два файла)
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([url])
-            
-            # 4. Успех
+                info = ydl.extract_info(url, download=True)
+                # Получаем имена скачанных файлов
+                requested_downloads = info.get('requested_downloads', [])
+                if not requested_downloads:
+                    raise Exception("Не удалось получить информацию о скачанных файлах")
+                
+                filepaths = []
+                for dl in requested_downloads:
+                    filepaths.append(dl['filepath'])
+                
+                if len(filepaths) < 2:
+                    # Если скачался только один файл (например, аудио), просто переименуем
+                    final_path = filepaths[0]
+                else:
+                    # 4. Склеиваем через FFmpeg-Kit
+                    Clock.schedule_once(lambda dt: setattr(self.status_label, 'text', 'Склейка...'), 0)
+                    
+                    video_path = None
+                    audio_path = None
+                    for p in filepaths:
+                        if '.m4a' in p or '.webm' in p: # аудио
+                            audio_path = p
+                        else:
+                            video_path = p
+                    
+                    if not video_path or not audio_path:
+                        raise Exception("Не удалось определить видео или аудио файл")
+
+                    final_path = os.path.join(download_dir, f"{info['title']}.mp4")
+                    
+                    # Вызываем FFmpeg через pyjnius
+                    FFMPEG = autoclass('com.sahib.pyff.ffpy')
+                    # Команда для склейки (копируем кодеки без перекодирования)
+                    cmd = f'-i "{video_path}" -i "{audio_path}" -c copy "{final_path}"'
+                    output = FFMPEG.Run(cmd)
+                    
+                    # Удаляем временные файлы
+                    os.remove(video_path)
+                    os.remove(audio_path)
+
             Clock.schedule_once(lambda dt: self.on_success(), 0)
             
         except Exception as e:
