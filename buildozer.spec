@@ -27,10 +27,10 @@ android.permissions = INTERNET
 source.exclude_patterns = app.py,create_installer.bat,test_mobile.py,verify_mobile.py
 
 # Добавляем Gradle-зависимости для FFmpeg-Kit
-android.gradle_dependencies = com.arqies:ffmpeg-kit-python:6.0-2.LTS@aar, com.arthenica:smart-exception-common:0.2.1@jar, com.arthenica:smart-exception-java:0.2.1@jar
+android.gradle_dependencies = dev.ffmpegkit-maintained:ffmpeg-kit-full:8.1.7
 
 # Добавляем репозиторий, откуда качать библиотеку
-android.add_gradle_repositories = maven {url 'https://Arqies-Repositories.github.io/Gradle-FFmpeg-Kit-Python/'}
+android.add_gradle_repositories = mavenCentral()
 
 # Включаем AndroidX (требуется для библиотеки)
 android.enable_androidx = True
