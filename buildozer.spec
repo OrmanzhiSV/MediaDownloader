@@ -16,7 +16,7 @@ icon.filename = icon.ico
 # --- Android настройки (только один раз!) ---
 android.api = 36
 android.minapi = 24
-android.ndk = 25c
+android.ndk = 27c
 p4a.branch = develop
 
 # Разрешения: только INTERNET (для yt-dlp). 
