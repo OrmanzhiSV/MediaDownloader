@@ -9,13 +9,15 @@ from kivy.uix.textinput import TextInput
 from kivy.uix.button import Button
 from kivy.uix.progressbar import ProgressBar
 from kivy.uix.tabbedpanel import TabbedPanel, TabbedPanelItem
+from kivy.uix.dropdown import DropDown
 from kivy.clock import Clock
 from kivy.core.clipboard import Clipboard
 from kivy.core.window import Window
 
-# Делаем фон белым, чтобы избежать "черного экрана"
+# Устанавливаем светлый фон
 Window.clearcolor = (0.95, 0.95, 0.95, 1)
 
+# Защита от конфликта логгеров Kivy и yt-dlp
 try:
     import yt_dlp
     YT_DLP_AVAILABLE = True
@@ -23,17 +25,18 @@ except Exception as e:
     YT_DLP_AVAILABLE = False
     YT_DLP_ERROR = str(e)
 
-# Создаём "пустой" логгер, который ничего не делает
+
 class EmptyLogger:
+    """Пустой логгер, чтобы yt-dlp не писал в stdout и не ломал Kivy"""
     def debug(self, msg): pass
     def warning(self, msg): pass
     def error(self, msg): pass
+
 
 class MediaDownloaderApp(App):
     def build(self):
         self.title = 'Media Downloader'
         
-        # Если yt_dlp не загрузился, показываем ошибку на экране
         if not YT_DLP_AVAILABLE:
             layout = BoxLayout(orientation='vertical', padding=20)
             layout.add_widget(Label(
@@ -50,14 +53,15 @@ class MediaDownloaderApp(App):
         tab_panel.add_widget(download_tab)
         
         settings_tab = TabbedPanelItem(text='Settings')
-        settings_tab.add_widget(Label(text='Settings here', color=(0,0,0,1)))
+        settings_tab.add_widget(self.create_settings_layout())
         tab_panel.add_widget(settings_tab)
         
         return tab_panel
     
     def create_download_layout(self):
-        layout = BoxLayout(orientation='vertical', padding=15, spacing=15)
+        layout = BoxLayout(orientation='vertical', padding=15, spacing=10)
         
+        # Статус
         self.status_label = Label(
             text='Готов к работе', 
             size_hint_y=None, height=40,
@@ -65,13 +69,11 @@ class MediaDownloaderApp(App):
         )
         layout.add_widget(self.status_label)
         
-        # Поле ввода + кнопка вставки
+        # Ввод URL + Вставить
         input_layout = BoxLayout(orientation='horizontal', size_hint_y=None, height=50, spacing=5)
         self.url_input = TextInput(
-            multiline=False,
-            hint_text='Вставьте ссылку...',
-            background_color=(1, 1, 1, 1),
-            foreground_color=(0, 0, 0, 1),
+            multiline=False, hint_text='Вставьте ссылку...',
+            background_color=(1, 1, 1, 1), foreground_color=(0, 0, 0, 1),
         )
         paste_btn = Button(text='Вставить', size_hint_x=0.3, background_color=(0.5, 0.5, 0.8, 1))
         paste_btn.bind(on_press=self.paste_url)
@@ -79,12 +81,40 @@ class MediaDownloaderApp(App):
         input_layout.add_widget(paste_btn)
         layout.add_widget(input_layout)
         
+        # --- БЛОК: Выбор формата ---
+        format_layout = BoxLayout(orientation='horizontal', size_hint_y=None, height=40, spacing=5)
+        format_layout.add_widget(Label(text="Формат:", color=(0,0,0,1), size_hint_x=0.3))
+        self.format_btn = Button(text='480p', size_hint_x=0.7)
+        self.selected_format = '480p'
+        self.format_dropdown = DropDown()
+        for text, value in [('360p', '360p'), ('480p', '480p'), ('Аудио', 'audio')]:
+            btn = Button(text=text, size_hint_y=None, height=44)
+            btn.bind(on_release=lambda btn, val=value, txt=text: self.select_format(val, txt))
+            self.format_dropdown.add_widget(btn)
+        self.format_btn.bind(on_release=self.format_dropdown.open)
+        self.format_dropdown.bind(on_select=lambda instance, x: setattr(self.format_btn, 'text', x))
+        format_layout.add_widget(self.format_btn)
+        layout.add_widget(format_layout)
+
+        # --- БЛОК: Выбор языка ---
+        lang_layout = BoxLayout(orientation='horizontal', size_hint_y=None, height=40, spacing=5)
+        lang_layout.add_widget(Label(text="Язык аудио:", color=(0,0,0,1), size_hint_x=0.3))
+        self.lang_btn = Button(text='Оригинал', size_hint_x=0.7)
+        self.selected_lang = ''
+        self.lang_dropdown = DropDown()
+        for text, value in [('Оригинал', ''), ('Украинский', 'uk'), ('Русский', 'ru')]:
+            btn = Button(text=text, size_hint_y=None, height=44)
+            btn.bind(on_release=lambda btn, val=value, txt=text: self.select_lang(val, txt))
+            self.lang_dropdown.add_widget(btn)
+        self.lang_btn.bind(on_release=self.lang_dropdown.open)
+        self.lang_dropdown.bind(on_select=lambda instance, x: setattr(self.lang_btn, 'text', x))
+        lang_layout.add_widget(self.lang_btn)
+        layout.add_widget(lang_layout)
+        
         # Кнопка скачивания
         self.download_btn = Button(
-            text='Скачать Видео (480p)', 
-            size_hint_y=None, height=60,
-            background_color=(0.1, 0.7, 0.3, 1),
-            color=(1, 1, 1, 1)
+            text='Скачать', size_hint_y=None, height=60,
+            background_color=(0.1, 0.7, 0.3, 1), color=(1, 1, 1, 1)
         )
         self.download_btn.bind(on_press=self.start_download)
         layout.add_widget(self.download_btn)
@@ -95,6 +125,20 @@ class MediaDownloaderApp(App):
         
         return layout
     
+    def create_settings_layout(self):
+        layout = BoxLayout(orientation='vertical', padding=15, spacing=10)
+        layout.add_widget(Label(text='Настройки', color=(0,0,0,1), font_size='20sp', size_hint_y=None, height=40))
+        layout.add_widget(Label(text='Выбор формата и языка\ndоступен на главном экране.', color=(0.3,0.3,0.3,1)))
+        return layout
+
+    def select_format(self, value, text):
+        self.selected_format = value
+        self.format_dropdown.select(text)
+
+    def select_lang(self, value, text):
+        self.selected_lang = value
+        self.lang_dropdown.select(text)
+
     def paste_url(self, instance):
         try:
             self.url_input.text = Clipboard.paste()
@@ -109,45 +153,51 @@ class MediaDownloaderApp(App):
         
         self.download_btn.disabled = True
         self.progress_bar.value = 0
-        self.status_label.text = 'Скачивание началось...'
+        self.status_label.text = 'Подготовка...'
         
         threading.Thread(target=self.download_worker, args=(url,), daemon=True).start()
     
     def download_worker(self, url):
         try:
-            # 1. Создаем папку для скачивания
-            # Используем app_storage_path() — это приватная папка приложения, куда писать можно без разрешений
+            # 1. Папка для скачивания
             try:
                 from android.storage import app_storage_path
                 download_dir = os.path.join(app_storage_path(), "Download")
                 os.makedirs(download_dir, exist_ok=True)
-                # Проверяем, что папка действительно создалась и в нее можно писать
-                test_file = os.path.join(download_dir, "test.txt")
-                with open(test_file, 'w') as f:
-                    f.write("test")
-                os.remove(test_file)
-                Clock.schedule_once(lambda dt: setattr(self.status_label, 'text', 'Папка готова. Начинаем...'), 0)
             except Exception as e:
                 err = str(e)
                 Clock.schedule_once(lambda dt, m=err: setattr(self.status_label, 'text', f'Ошибка папки: {m}'), 0)
                 return
 
-            # 2. Настраиваем yt-dlp
+            # 2. Формируем строку формата (как в вашем Windows-приложении, но с фоллбеками)
+            lang_filter = f"[language^={self.selected_lang}]" if self.selected_lang else ""
+            
+            if self.selected_format == 'audio':
+                format_string = f"bestaudio{lang_filter}/bestaudio/best"
+            else:
+                height = 480 if self.selected_format == '480p' else 360
+                # Пытаемся взять mp4/avc + m4a на нужном языке, если нет — любое видео + аудио, если нет — готовый файл
+                format_string = (
+                    f"bestvideo[height<={height}][ext=mp4][vcodec^=avc]+bestaudio[ext=m4a]{lang_filter}/"
+                    f"bestvideo[height<={height}]+bestaudio{lang_filter}/"
+                    f"best[height<={height}]/"
+                    f"best"
+                )
+
             ydl_opts = {
                 'outtmpl': os.path.join(download_dir, '%(title)s.%(ext)s'),
-                'format': 'best[height<=480]/best',
+                'format': format_string,
                 'nocheckcertificate': True,
-                'quiet': True,          # Отключаем лишний вывод в консоль
-                'no_warnings': True,    # Отключаем предупреждения
-                'noprogress': True,     # Отключаем прогресс-бар yt-dlp (у нас свой)
-                'logger': EmptyLogger(),  # <-- КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ
-                # Явно указываем, куда писать кэш (в приватную папку)
+                'quiet': True,
+                'no_warnings': True,
+                'noprogress': True,
+                'logger': EmptyLogger(),
                 'cachedir': os.path.join(app_storage_path(), '.cache'),
             }
             
             Clock.schedule_once(lambda dt: setattr(self.status_label, 'text', 'Скачивание...'), 0)
             
-            # 3. Запускаем скачивание
+            # 3. Запуск
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([url])
             
@@ -172,7 +222,6 @@ if __name__ == '__main__':
     try:
         MediaDownloaderApp().run()
     except Exception:
-        # Сохраняем лог
         try:
             from android.storage import app_storage_path
             log_path = os.path.join(app_storage_path(), "crash_log.txt")
