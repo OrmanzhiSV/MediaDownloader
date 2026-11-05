@@ -69,14 +69,15 @@ jobs:
           mkdir -p .buildozer_host/android/platform
           cd .buildozer_host/android/platform
           
-          # Скачиваем с зеркала Apache (или используем альтернативный URL)
+          # Скачиваем с зеркала Apache
           curl -L --retry 3 --retry-delay 2 \
             -o apache-ant-1.9.4-bin.tar.gz \
             https://archive.apache.org/dist/ant/binaries/apache-ant-1.9.4-bin.tar.gz
           
-          # Распаковываем
+          # Распаковываем (папка apache-ant-1.9.4 создастся автоматически)
           tar -xzf apache-ant-1.9.4-bin.tar.gz
-          mv apache-ant-1.9.4 apache-ant-1.9.4
+          
+          # Удаляем архив (опционально)
           rm apache-ant-1.9.4-bin.tar.gz
           
           echo "Apache Ant установлен."
