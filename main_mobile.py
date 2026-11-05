@@ -193,12 +193,10 @@ class MediaDownloaderApp(App):
             lang_filter = f"[language^={self.selected_lang}]" if self.selected_lang else ""
             
             if self.selected_format == 'audio':
-                # Для аудио просто скачиваем лучшую дорожку
                 format_string = f"bestaudio{lang_filter}/bestaudio"
             else:
                 height = 480 if self.selected_format == '480p' else 360
-                # КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: используем запятую вместо плюса
-                # yt-dlp скачает видео и аудио как ДВА ОТДЕЛЬНЫХ файла и НЕ БУДЕТ пытаться их склеить
+                # КЛЮЧЕВОЕ: запятая вместо плюса. yt-dlp скачает ДВА файла и НЕ будет искать ffmpeg.
                 format_string = (
                     f"bestvideo[height<={height}][ext=mp4],"
                     f"bestaudio[ext=m4a]{lang_filter}/"
@@ -215,7 +213,6 @@ class MediaDownloaderApp(App):
                 'noprogress': True,
                 'logger': EmptyLogger(),
                 'cachedir': os.path.join(app_storage_path(), '.cache'),
-                # Убираем постпроцессоры, чтобы yt-dlp ничего не пытался делать сам
                 'postprocessors': [], 
             }
             
