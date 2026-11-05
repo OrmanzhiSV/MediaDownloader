@@ -3,6 +3,7 @@ import sys
 import traceback
 import threading
 import io
+import time
 from kivy.app import App
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.label import Label
@@ -15,20 +16,11 @@ from kivy.clock import Clock
 from kivy.core.clipboard import Clipboard
 from kivy.core.window import Window
 
-# Импорт pyjnius для вызова Java-библиотеки FFmpegKit и MediaStore
 try:
     from jnius import autoclass
     PYJNIUS_AVAILABLE = True
 except ImportError:
     PYJNIUS_AVAILABLE = False
-
-try:
-    from jnius import autoclass
-    # Принудительная загрузка класса FFmpegKit при старте
-    autoclass('com.arthenica.ffmpegkit.FFmpegKit')
-    print("FFmpegKit class loaded successfully")
-except Exception as e:
-    print(f"FFmpegKit class load failed: {e}")
 
 Window.clearcolor = (0.95, 0.95, 0.95, 1)
 
@@ -49,7 +41,6 @@ class EmptyLogger:
 def copy_to_public_download(local_file_path, filename, mime_type):
     """
     Копирует локальный файл в общую папку Download на Android 10+.
-    Возвращает True в случае успеха.
     """
     if not PYJNIUS_AVAILABLE:
         return False
@@ -194,7 +185,6 @@ class MediaDownloaderApp(App):
     def download_worker(self, url):
         try:
             from android.storage import app_storage_path
-            # Временная папка для скачивания и склейки
             download_dir = os.path.join(app_storage_path(), "Download")
             os.makedirs(download_dir, exist_ok=True)
 
@@ -204,7 +194,6 @@ class MediaDownloaderApp(App):
                 format_string = f"bestaudio{lang_filter}/bestaudio"
             else:
                 height = 480 if self.selected_format == '480p' else 360
-                # КЛЮЧЕВОЕ: запятая вместо плюса. yt-dlp скачает ДВА файла и НЕ будет искать ffmpeg.
                 format_string = (
                     f"bestvideo[height<={height}][ext=mp4],"
                     f"bestaudio[ext=m4a]{lang_filter}/"
@@ -233,7 +222,6 @@ class MediaDownloaderApp(App):
                 
                 if len(filepaths) < 2:
                     final_path = filepaths[0]
-                    # Если скачался только один файл (аудио)
                     if self.selected_format == 'audio':
                         mime_type = 'audio/mp4' if final_path.endswith('.m4a') else 'audio/webm'
                         filename = os.path.basename(final_path)
@@ -252,7 +240,6 @@ class MediaDownloaderApp(App):
                     if not video_path or not audio_path:
                         video_path, audio_path = filepaths[0], filepaths[1]
 
-                    # Формируем безопасное имя файла
                     safe_title = "".join([c for c in info['title'] if c.isalpha() or c.isdigit() or c in ' .-_']).rstrip()
                     if not safe_title:
                         safe_title = "video"
@@ -260,19 +247,26 @@ class MediaDownloaderApp(App):
                     
                     if PYJNIUS_AVAILABLE:
                         try:
+                            # Вызываем autoclass прямо здесь, в рабочем потоке
                             FFmpegKit = autoclass('com.arthenica.ffmpegkit.FFmpegKit')
                             cmd = f'-i "{video_path}" -i "{audio_path}" -c copy "{final_path}"'
                             FFmpegKit.execute(cmd)
                             
+                            # ЖДЕМ завершения склейки (execute асинхронен)
+                            # Ждем до 30 секунд, пока файл не появится
+                            timeout = 30
+                            start_time = time.time()
+                            while not os.path.exists(final_path) and (time.time() - start_time) < timeout:
+                                time.sleep(1)
+                                
                             if not os.path.exists(final_path):
-                                raise Exception("FFmpeg не создал файл")
+                                raise Exception("FFmpeg не создал файл за 30 секунд")
                                 
                         except Exception as e:
                             raise Exception(f"Ошибка FFmpeg: {e}")
                     else:
                         raise Exception("pyjnius не найден")
                     
-                    # Копируем готовый файл в общую папку Download
                     Clock.schedule_once(lambda dt: setattr(self.status_label, 'text', 'Сохранение в Downloads...'), 0)
                     filename = f"{safe_title}.mp4"
                     success = copy_to_public_download(final_path, filename, 'video/mp4')
@@ -280,11 +274,10 @@ class MediaDownloaderApp(App):
                     if not success:
                         raise Exception("Не удалось сохранить в общую папку")
                     
-                    # Удаляем временные файлы
                     try:
                         os.remove(video_path)
                         os.remove(audio_path)
-                        os.remove(final_path) # Удаляем и склеенный файл, так как он уже скопирован
+                        os.remove(final_path)
                     except:
                         pass
 
