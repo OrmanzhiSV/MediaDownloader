@@ -35,6 +35,8 @@ android.add_gradle_repositories = mavenCentral()
 # Включаем AndroidX (требуется для библиотеки)
 android.enable_androidx = True
 
+android.ant_path = /root/.buildozer/android/platform/apache-ant-1.9.4
+
 [buildozer]
 log_level = 2
 warn_on_root = 0
