@@ -61,6 +61,29 @@ jobs:
           echo "Валидный Android SDK восстановлен из кэша."
         fi
 
+    - name: Pre-install Apache Ant on Host
+      run: |
+        # Проверяем, есть ли уже Ant в кэше
+        if [ ! -d ".buildozer_host/android/platform/apache-ant-1.9.4" ]; then
+          echo "Скачиваем Apache Ant..."
+          mkdir -p .buildozer_host/android/platform
+          cd .buildozer_host/android/platform
+          
+          # Скачиваем с зеркала Apache (или используем альтернативный URL)
+          curl -L --retry 3 --retry-delay 2 \
+            -o apache-ant-1.9.4-bin.tar.gz \
+            https://archive.apache.org/dist/ant/binaries/apache-ant-1.9.4-bin.tar.gz
+          
+          # Распаковываем
+          tar -xzf apache-ant-1.9.4-bin.tar.gz
+          mv apache-ant-1.9.4 apache-ant-1.9.4
+          rm apache-ant-1.9.4-bin.tar.gz
+          
+          echo "Apache Ant установлен."
+        else
+          echo "Apache Ant найден в кэше."
+        fi
+
     - name: Run Buildozer inside Python 3.11 Container
       run: |
         chmod -R 777 .buildozer_host
