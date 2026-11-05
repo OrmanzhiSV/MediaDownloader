@@ -2,6 +2,7 @@ import os
 import sys
 import traceback
 import threading
+import io
 from kivy.app import App
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.label import Label
@@ -14,7 +15,7 @@ from kivy.clock import Clock
 from kivy.core.clipboard import Clipboard
 from kivy.core.window import Window
 
-# Импорт pyjnius для вызова Java-библиотеки FFmpegKit
+# Импорт pyjnius для вызова Java-библиотеки FFmpegKit и MediaStore
 try:
     from jnius import autoclass
     PYJNIUS_AVAILABLE = True
@@ -35,6 +36,48 @@ class EmptyLogger:
     def debug(self, msg): pass
     def warning(self, msg): pass
     def error(self, msg): pass
+
+
+def copy_to_public_download(local_file_path, filename, mime_type):
+    """
+    Копирует локальный файл в общую папку Download на Android 10+.
+    Возвращает True в случае успеха.
+    """
+    if not PYJNIUS_AVAILABLE:
+        return False
+    try:
+        Environment = autoclass('android.os.Environment')
+        MediaStore = autoclass('android.provider.MediaStore')
+        ContentValues = autoclass('android.content.ContentValues')
+        PythonActivity = autoclass('org.kivy.android.PythonActivity')
+        
+        activity = PythonActivity.mActivity
+        context = activity.getApplicationContext()
+        
+        values = ContentValues()
+        values.put(MediaStore.MediaColumns.DISPLAY_NAME, filename)
+        values.put(MediaStore.MediaColumns.MIME_TYPE, mime_type)
+        values.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+        
+        resolver = context.getContentResolver()
+        uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+        
+        if uri is None:
+            return False
+            
+        output_stream = resolver.openOutputStream(uri)
+        with io.open(local_file_path, 'rb') as f:
+            while True:
+                chunk = f.read(8192)
+                if not chunk:
+                    break
+                output_stream.write(chunk)
+        output_stream.close()
+        
+        return True
+    except Exception as e:
+        print(f"Ошибка при копировании в Download: {e}")
+        return False
 
 
 class MediaDownloaderApp(App):
@@ -143,12 +186,12 @@ class MediaDownloaderApp(App):
     def download_worker(self, url):
         try:
             from android.storage import app_storage_path
+            # Временная папка для скачивания и склейки
             download_dir = os.path.join(app_storage_path(), "Download")
             os.makedirs(download_dir, exist_ok=True)
 
             lang_filter = f"[language^={self.selected_lang}]" if self.selected_lang else ""
             
-            # Скачиваем видео и аудио ОТДЕЛЬНО (через запятую), чтобы yt-dlp не пытался склеивать
             if self.selected_format == 'audio':
                 format_string = f"bestaudio{lang_filter}/bestaudio"
             else:
@@ -179,6 +222,11 @@ class MediaDownloaderApp(App):
                 
                 if len(filepaths) < 2:
                     final_path = filepaths[0]
+                    # Если скачался только один файл (аудио)
+                    if self.selected_format == 'audio':
+                        mime_type = 'audio/mp4' if final_path.endswith('.m4a') else 'audio/webm'
+                        filename = os.path.basename(final_path)
+                        copy_to_public_download(final_path, filename, mime_type)
                 else:
                     Clock.schedule_once(lambda dt: setattr(self.status_label, 'text', 'Склейка...'), 0)
                     
@@ -193,22 +241,39 @@ class MediaDownloaderApp(App):
                     if not video_path or not audio_path:
                         video_path, audio_path = filepaths[0], filepaths[1]
 
-                    final_path = os.path.join(download_dir, f"{info['title']}.mp4")
+                    # Формируем безопасное имя файла
+                    safe_title = "".join([c for c in info['title'] if c.isalpha() or c.isdigit() or c in ' .-_']).rstrip()
+                    if not safe_title:
+                        safe_title = "video"
+                    final_path = os.path.join(download_dir, f"{safe_title}.mp4")
                     
                     if PYJNIUS_AVAILABLE:
                         try:
-                            # ИСПОЛЬЗУЕМ НОВЫЙ API (dev.ffmpegkit-maintained)
                             FFmpegKit = autoclass('com.arthenica.ffmpegkit.FFmpegKit')
                             cmd = f'-i "{video_path}" -i "{audio_path}" -c copy "{final_path}"'
                             FFmpegKit.execute(cmd)
+                            
+                            if not os.path.exists(final_path):
+                                raise Exception("FFmpeg не создал файл")
+                                
                         except Exception as e:
                             raise Exception(f"Ошибка FFmpeg: {e}")
                     else:
                         raise Exception("pyjnius не найден")
                     
+                    # Копируем готовый файл в общую папку Download
+                    Clock.schedule_once(lambda dt: setattr(self.status_label, 'text', 'Сохранение в Downloads...'), 0)
+                    filename = f"{safe_title}.mp4"
+                    success = copy_to_public_download(final_path, filename, 'video/mp4')
+                    
+                    if not success:
+                        raise Exception("Не удалось сохранить в общую папку")
+                    
+                    # Удаляем временные файлы
                     try:
                         os.remove(video_path)
                         os.remove(audio_path)
+                        os.remove(final_path) # Удаляем и склеенный файл, так как он уже скопирован
                     except:
                         pass
 
@@ -219,7 +284,7 @@ class MediaDownloaderApp(App):
             Clock.schedule_once(lambda dt, msg=err_msg: self.on_error(msg), 0)
             
     def on_success(self):
-        self.status_label.text = 'Успешно скачано!'
+        self.status_label.text = 'Успешно сохранено в Downloads!'
         self.progress_bar.value = 100
         self.download_btn.disabled = False
         
