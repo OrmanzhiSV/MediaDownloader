@@ -17,20 +17,31 @@ from kivy.clock import Clock
 from kivy.core.clipboard import Clipboard
 from kivy.core.window import Window
 
-# 1. Сначала проверяем наличие pyjnius
 try:
     from jnius import autoclass
+    from jnius import JavaException
     PYJNIUS_AVAILABLE = True
 except ImportError:
     PYJNIUS_AVAILABLE = False
 
-# 2. Пытаемся загрузить класс FFmpegKit
+# Функция для вывода ошибок в Logcat
+def log_to_logcat(tag, message):
+    if not PYJNIUS_AVAILABLE:
+        print(f"{tag}: {message}")
+        return
+    try:
+        Log = autoclass('android.util.Log')
+        Log.e(tag, message)
+    except Exception:
+        print(f"{tag}: {message}")
+
+# Пытаемся загрузить FFmpegKit при старте и логируем результат
 if PYJNIUS_AVAILABLE:
     try:
         FFmpegKit = autoclass('com.arthenica.ffmpegkit.FFmpegKit')
-        print("FFmpegKit class loaded successfully")
+        log_to_logcat("FFmpeg", "FFmpegKit class loaded successfully")
     except Exception as e:
-        print(f"FFmpegKit class load failed: {e}")
+        log_to_logcat("FFmpeg", f"FFmpegKit class load failed: {e}")
 
 # Делаем фон белым
 Window.clearcolor = (0.95, 0.95, 0.95, 1)
@@ -288,6 +299,7 @@ class MediaDownloaderApp(App):
                                 raise Exception("FFmpeg не создал файл за 30 секунд")
                                 
                         except Exception as e:
+                            log_to_logcat("FFmpeg", f"Error: {e}")
                             raise Exception(f"Ошибка FFmpeg: {e}")
                     else:
                         raise Exception("pyjnius не найден")
