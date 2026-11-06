@@ -21,6 +21,14 @@ try:
     PYJNIUS_AVAILABLE = True
 except ImportError:
     PYJNIUS_AVAILABLE = False
+    
+# 2. Затем, если pyjnius есть, пробуем загрузить FFmpegKit
+if PYJNIUS_AVAILABLE:
+    try:
+        FFmpegKit = autoclass('com.arthenica.ffmpegkit.FFmpegKit')
+        print("FFmpegKit class loaded successfully")
+    except Exception as e:
+        print(f"FFmpegKit class load failed: {e}")
 
 Window.clearcolor = (0.95, 0.95, 0.95, 1)
 
