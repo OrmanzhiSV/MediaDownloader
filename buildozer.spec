@@ -26,11 +26,11 @@ android.permissions = INTERNET
 # Исключаем лишние файлы из сборки
 source.exclude_patterns = app.py,create_installer.bat,test_mobile.py,verify_mobile.py
 
-# Добавляем Gradle-зависимости для FFmpeg-Kit
-android.gradle_dependencies = dev.ffmpegkit-maintained:ffmpeg-kit-full:8.1.7
-
 # Добавляем репозиторий, откуда качать библиотеку
 android.add_gradle_repositories = mavenCentral()
+
+# Добавляем Gradle-зависимости для FFmpeg-Kit
+android.gradle_dependencies = dev.ffmpegkit-maintained:ffmpeg-kit-full:8.1.7
 
 # Включаем AndroidX (требуется для библиотеки)
 android.enable_androidx = True
