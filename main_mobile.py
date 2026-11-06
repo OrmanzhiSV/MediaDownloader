@@ -12,17 +12,19 @@ from kivy.uix.button import Button
 from kivy.uix.progressbar import ProgressBar
 from kivy.uix.tabbedpanel import TabbedPanel, TabbedPanelItem
 from kivy.uix.dropdown import DropDown
+from kivy.uix.scrollview import ScrollView
 from kivy.clock import Clock
 from kivy.core.clipboard import Clipboard
 from kivy.core.window import Window
 
+# 1. Сначала проверяем наличие pyjnius
 try:
     from jnius import autoclass
     PYJNIUS_AVAILABLE = True
 except ImportError:
     PYJNIUS_AVAILABLE = False
-    
-# 2. Затем, если pyjnius есть, пробуем загрузить FFmpegKit
+
+# 2. Пытаемся загрузить класс FFmpegKit
 if PYJNIUS_AVAILABLE:
     try:
         FFmpegKit = autoclass('com.arthenica.ffmpegkit.FFmpegKit')
@@ -30,6 +32,7 @@ if PYJNIUS_AVAILABLE:
     except Exception as e:
         print(f"FFmpegKit class load failed: {e}")
 
+# Делаем фон белым
 Window.clearcolor = (0.95, 0.95, 0.95, 1)
 
 try:
@@ -47,9 +50,7 @@ class EmptyLogger:
 
 
 def copy_to_public_download(local_file_path, filename, mime_type):
-    """
-    Копирует локальный файл в общую папку Download на Android 10+.
-    """
+    """Копирует файл в общую папку Download"""
     if not PYJNIUS_AVAILABLE:
         return False
     try:
@@ -80,7 +81,6 @@ def copy_to_public_download(local_file_path, filename, mime_type):
                     break
                 output_stream.write(chunk)
         output_stream.close()
-        
         return True
     except Exception as e:
         print(f"Ошибка при копировании в Download: {e}")
@@ -111,9 +111,26 @@ class MediaDownloaderApp(App):
     def create_download_layout(self):
         layout = BoxLayout(orientation='vertical', padding=15, spacing=10)
         
-        self.status_label = Label(text='Готов к работе', size_hint_y=None, height=40, color=(0, 0, 0, 1))
-        layout.add_widget(self.status_label)
+        # --- НОВЫЙ БЛОК: Прокручиваемый статус ---
+        status_layout = BoxLayout(orientation='vertical', size_hint_y=None, height=80)
         
+        self.status_text = TextInput(
+            text='Готов к работе',
+            readonly=True,
+            multiline=True,
+            background_color=(0.9, 0.9, 0.9, 1),
+            foreground_color=(0, 0, 0, 1),
+            size_hint_y=None,
+            height=80
+        )
+        # Добавляем прокрутку для длинных сообщений
+        scroll = ScrollView(size_hint=(1, None), size=(Window.width, 80))
+        scroll.add_widget(self.status_text)
+        status_layout.add_widget(scroll)
+        
+        layout.add_widget(status_layout)
+        # -----------------------------------------
+
         input_layout = BoxLayout(orientation='horizontal', size_hint_y=None, height=50, spacing=5)
         self.url_input = TextInput(multiline=False, hint_text='Вставьте ссылку...', background_color=(1, 1, 1, 1), foreground_color=(0, 0, 0, 1))
         paste_btn = Button(text='Вставить', size_hint_x=0.3, background_color=(0.5, 0.5, 0.8, 1))
@@ -176,17 +193,17 @@ class MediaDownloaderApp(App):
         try:
             self.url_input.text = Clipboard.paste()
         except Exception:
-            self.status_label.text = "Ошибка: буфер обмена пуст"
+            self.status_text.text = "Ошибка: буфер обмена пуст"
 
     def start_download(self, instance):
         url = self.url_input.text.strip()
         if not url:
-            self.status_label.text = 'Ошибка: Введите ссылку!'
+            self.status_text.text = 'Ошибка: Введите ссылку!'
             return
         
         self.download_btn.disabled = True
         self.progress_bar.value = 0
-        self.status_label.text = 'Подготовка...'
+        self.status_text.text = 'Подготовка...'
         
         threading.Thread(target=self.download_worker, args=(url,), daemon=True).start()
     
@@ -221,7 +238,7 @@ class MediaDownloaderApp(App):
                 'postprocessors': [], 
             }
             
-            Clock.schedule_once(lambda dt: setattr(self.status_label, 'text', 'Скачивание...'), 0)
+            Clock.schedule_once(lambda dt: setattr(self.status_text, 'text', 'Скачивание...'), 0)
             
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=True)
@@ -235,7 +252,7 @@ class MediaDownloaderApp(App):
                         filename = os.path.basename(final_path)
                         copy_to_public_download(final_path, filename, mime_type)
                 else:
-                    Clock.schedule_once(lambda dt: setattr(self.status_label, 'text', 'Склейка...'), 0)
+                    Clock.schedule_once(lambda dt: setattr(self.status_text, 'text', 'Склейка...'), 0)
                     
                     video_path = None
                     audio_path = None
@@ -255,13 +272,13 @@ class MediaDownloaderApp(App):
                     
                     if PYJNIUS_AVAILABLE:
                         try:
-                            # Вызываем autoclass прямо здесь, в рабочем потоке
                             FFmpegKit = autoclass('com.arthenica.ffmpegkit.FFmpegKit')
                             cmd = f'-i "{video_path}" -i "{audio_path}" -c copy "{final_path}"'
+                            
+                            # Запускаем склейку (асинхронно)
                             FFmpegKit.execute(cmd)
                             
-                            # ЖДЕМ завершения склейки (execute асинхронен)
-                            # Ждем до 30 секунд, пока файл не появится
+                            # Ждем завершения склейки (пока файл не появится)
                             timeout = 30
                             start_time = time.time()
                             while not os.path.exists(final_path) and (time.time() - start_time) < timeout:
@@ -275,7 +292,7 @@ class MediaDownloaderApp(App):
                     else:
                         raise Exception("pyjnius не найден")
                     
-                    Clock.schedule_once(lambda dt: setattr(self.status_label, 'text', 'Сохранение в Downloads...'), 0)
+                    Clock.schedule_once(lambda dt: setattr(self.status_text, 'text', 'Сохранение в Downloads...'), 0)
                     filename = f"{safe_title}.mp4"
                     success = copy_to_public_download(final_path, filename, 'video/mp4')
                     
@@ -292,16 +309,16 @@ class MediaDownloaderApp(App):
             Clock.schedule_once(lambda dt: self.on_success(), 0)
             
         except Exception as e:
-            err_msg = str(e)[:100]
+            err_msg = str(e) # Теперь передаем полную ошибку!
             Clock.schedule_once(lambda dt, msg=err_msg: self.on_error(msg), 0)
             
     def on_success(self):
-        self.status_label.text = 'Успешно сохранено в Downloads!'
+        self.status_text.text = 'Успешно сохранено в Downloads!'
         self.progress_bar.value = 100
         self.download_btn.disabled = False
         
     def on_error(self, message):
-        self.status_label.text = f'Ошибка: {message}'
+        self.status_text.text = f'Ошибка: {message}'
         self.download_btn.disabled = False
 
 
