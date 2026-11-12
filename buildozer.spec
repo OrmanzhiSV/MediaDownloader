@@ -30,7 +30,7 @@ source.exclude_patterns = app.py,create_installer.bat,test_mobile.py,verify_mobi
 android.add_gradle_repositories = mavenCentral()
 
 # Добавляем Gradle-зависимости для FFmpeg-Kit
-android.gradle_dependencies = dev.ffmpegkit-maintained:ffmpeg-kit-full:8.1.7
+android.gradle_dependencies = dev.ffmpegkit-maintained:ffmpeg-kit-full:8.1.7, com.arthenica:smart-exception-java:0.2.1, com.arthenica:smart-exception-common:0.2.1
 
 # Включаем AndroidX (требуется для библиотеки)
 android.enable_androidx = True
